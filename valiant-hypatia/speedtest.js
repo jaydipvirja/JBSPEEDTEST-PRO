@@ -1,4 +1,4 @@
-// SpeedTest Pro - Master Controller Module with Ookla-Style 60 FPS Visual Smoothness Architecture
+// SpeedTest Pro - Master Controller Module with Ookla-Style 60 FPS Visual Smoothness & Turbo Engine
 
 import { detectConnection, listenToNetworkChanges } from './modules/networkDetection.js';
 import { selectBestServer } from './modules/serverSelection.js';
@@ -6,11 +6,14 @@ import { executeSpeedTestPipeline } from './modules/speedtestCore.js';
 import { getTestHistory, clearTestHistory } from './modules/history.js';
 import { generateShareText, generateShareCardCanvas } from './modules/sharing.js';
 import { SpeedSmoother } from './modules/speedSmoother.js';
+import { runDownloadTest } from './modules/download.js';
+import { runUploadTest } from './modules/upload.js';
 
 // Global Engine State
 let currentMode = 'internet'; // 'internet' or 'local'
 let isRunning = false;
 let isTurboRunning = false;
+let currentTurboType = 'download';
 let activeAbortController = null;
 let currentTestProfile = 'standard';
 let activeResult = null;
@@ -20,6 +23,11 @@ let lastFrameTime = performance.now();
 
 let chartPoints = [];
 let peakSpeedRecorded = 0;
+
+let turboTimerInterval = null;
+let turboStartTime = 0;
+let turboTotalBytes = 0;
+let turboPeakMbps = 0;
 
 // DOM Elements
 const canvas = document.getElementById('gaugeCanvas');
@@ -139,7 +147,6 @@ function drawGauge() {
     const dt = Math.min(32, now - lastFrameTime);
     lastFrameTime = now;
 
-    // Smooth Display Interpolation Step (Independent from raw network callbacks)
     const currentDisplaySpeed = speedSmoother.step(dt);
 
     const width = canvas.width;
@@ -266,7 +273,6 @@ function updateLiveChart(val) {
     chartCtx.beginPath();
     chartCtx.moveTo(0, h - (chartPoints[0] / maxVal) * (h - 10));
 
-    // Smooth Bezier Curve Interpolation between graph points
     for (let i = 0; i < chartPoints.length - 1; i++) {
         const x1 = i * stepX;
         const y1 = h - (chartPoints[i] / maxVal) * (h - 10);
@@ -307,6 +313,17 @@ function resetTestUI() {
     }
     if (btnLabel) btnLabel.innerText = 'START SPEED TEST';
     if (pipelineProgressBox) pipelineProgressBox.style.display = 'none';
+
+    const downBtn = document.getElementById('turboDownBtn');
+    const upBtn = document.getElementById('turboUpBtn');
+    const downLabel = document.getElementById('turboDownBtnLabel');
+    const upLabel = document.getElementById('turboUpBtnLabel');
+
+    if (downBtn) downBtn.classList.remove('running');
+    if (upBtn) upBtn.classList.remove('running');
+    if (downLabel) downLabel.innerText = 'TURBO DOWN';
+    if (upLabel) upLabel.innerText = 'TURBO UP';
+
     const testStateBadge = document.getElementById('testStateBadge');
     if (testStateBadge) {
         testStateBadge.className = 'badge idle';
@@ -316,7 +333,7 @@ function resetTestUI() {
 
 // Standard Speed Test Trigger
 window.toggleTest = function() {
-    if (isTurboRunning) return;
+    if (isTurboRunning) stopTurboMode();
     triggerHaptic('medium');
 
     if (isRunning) {
@@ -333,6 +350,178 @@ window.toggleTest = function() {
         startFullSpeedTest();
     }
 };
+
+// 🔥 TURBO DOWN & TURBO UP CONTINUOUS ENGINE
+window.toggleTurboMode = function(type) {
+    triggerHaptic('medium');
+
+    if (isRunning) {
+        if (activeAbortController) activeAbortController.abort();
+        isRunning = false;
+        resetTestUI();
+    }
+
+    if (isTurboRunning) {
+        if (currentTurboType === type) {
+            stopTurboMode();
+            return;
+        } else {
+            stopTurboMode();
+        }
+    }
+
+    startTurboMode(type);
+};
+
+function stopTurboMode() {
+    isTurboRunning = false;
+    if (activeAbortController) activeAbortController.abort();
+    if (turboTimerInterval) clearInterval(turboTimerInterval);
+
+    const downBtn = document.getElementById('turboDownBtn');
+    const upBtn = document.getElementById('turboUpBtn');
+    const downLabel = document.getElementById('turboDownBtnLabel');
+    const upLabel = document.getElementById('turboUpBtnLabel');
+
+    if (downBtn) downBtn.classList.remove('running');
+    if (upBtn) upBtn.classList.remove('running');
+    if (downLabel) downLabel.innerText = 'TURBO DOWN';
+    if (upLabel) upLabel.innerText = 'TURBO UP';
+
+    const testStateBadge = document.getElementById('testStateBadge');
+    if (testStateBadge) {
+        testStateBadge.className = 'badge complete';
+        testStateBadge.innerText = 'TURBO COMPLETE';
+    }
+}
+
+async function startTurboMode(type) {
+    isTurboRunning = true;
+    currentTurboType = type;
+    activeAbortController = new AbortController();
+    const signal = activeAbortController.signal;
+
+    turboStartTime = performance.now();
+    turboTotalBytes = 0;
+    turboPeakMbps = 0;
+    speedSmoother.reset();
+
+    const limitSelect = document.getElementById('turboLimitSelect');
+    const limitMB = limitSelect ? (limitSelect.value === 'unlimited' ? Infinity : parseFloat(limitSelect.value)) : Infinity;
+
+    const downBtn = document.getElementById('turboDownBtn');
+    const upBtn = document.getElementById('turboUpBtn');
+    const downLabel = document.getElementById('turboDownBtnLabel');
+    const upLabel = document.getElementById('turboUpBtnLabel');
+    const statsBar = document.getElementById('turboStatsBar');
+
+    if (statsBar) statsBar.style.display = 'block';
+
+    if (type === 'download') {
+        if (downBtn) downBtn.classList.add('running');
+        if (downLabel) downLabel.innerText = 'STOP TURBO';
+    } else {
+        if (upBtn) upBtn.classList.add('running');
+        if (upLabel) upLabel.innerText = 'STOP TURBO';
+    }
+
+    const testStateBadge = document.getElementById('testStateBadge');
+    const testProgressText = document.getElementById('testProgressText');
+    if (testStateBadge) {
+        testStateBadge.className = type === 'download' ? 'badge turbo-down' : 'badge turbo-up';
+        testStateBadge.innerText = type === 'download' ? '🔥 TURBO DOWN' : '📤 TURBO UP';
+    }
+    if (testProgressText) {
+        testProgressText.innerText = `Continuous ${type.toUpperCase()} Stress Test Active...`;
+    }
+
+    // Timer Update Loop
+    turboTimerInterval = setInterval(() => {
+        const elapsedSec = (performance.now() - turboStartTime) / 1000;
+        const mins = Math.floor(elapsedSec / 60).toString().padStart(2, '0');
+        const secs = Math.floor(elapsedSec % 60).toString().padStart(2, '0');
+
+        const timerEl = document.getElementById('turboTimer');
+        if (timerEl) timerEl.innerText = `${mins}:${secs}`;
+
+        const avgMbps = elapsedSec > 0 ? (turboTotalBytes * 8) / (elapsedSec * 1024 * 1024) : 0;
+        const avgEl = document.getElementById('turboAvgSpeed');
+        if (avgEl) avgEl.innerText = `${avgMbps.toFixed(1)} Mbps`;
+
+        const burnRateMBs = elapsedSec > 0 ? (turboTotalBytes / (1024 * 1024)) / elapsedSec : 0;
+        const burnEl = document.getElementById('dataBurnRate');
+        if (burnEl) burnEl.innerText = `Transfer Rate: ~${burnRateMBs.toFixed(2)} MB/s`;
+    }, 200);
+
+    const connInfo = detectConnection();
+    const server = await selectBestServer(23.0225, 72.5714, signal);
+
+    try {
+        while (isTurboRunning && (!signal || !signal.aborted)) {
+            const currentMB = turboTotalBytes / (1024 * 1024);
+            if (currentMB >= limitMB) {
+                console.log(`[TurboEngine] Data Limit Reached: ${currentMB.toFixed(2)} MB / ${limitMB} MB`);
+                break;
+            }
+
+            if (type === 'download') {
+                await runDownloadTest({
+                    server,
+                    isMobile: connInfo.isMobile,
+                    durationMs: 4000,
+                    onProgress: (p) => {
+                        speedSmoother.pushRawSample(p.instantMbps);
+                        updateLiveChart(speedSmoother.targetSpeed);
+                        turboTotalBytes += p.totalBytes;
+                        if (p.instantMbps > turboPeakMbps) {
+                            turboPeakMbps = p.instantMbps;
+                            const peakEl = document.getElementById('turboPeakSpeed');
+                            if (peakEl) peakEl.innerText = `${turboPeakMbps.toFixed(1)} Mbps`;
+                        }
+                        updateTurboDataMeter(turboTotalBytes);
+                    },
+                    signal
+                });
+            } else {
+                await runUploadTest({
+                    server,
+                    isMobile: connInfo.isMobile,
+                    durationMs: 4000,
+                    onProgress: (p) => {
+                        speedSmoother.pushRawSample(p.instantMbps);
+                        updateLiveChart(speedSmoother.targetSpeed);
+                        turboTotalBytes += p.totalBytes;
+                        if (p.instantMbps > turboPeakMbps) {
+                            turboPeakMbps = p.instantMbps;
+                            const peakEl = document.getElementById('turboPeakSpeed');
+                            if (peakEl) peakEl.innerText = `${turboPeakMbps.toFixed(1)} Mbps`;
+                        }
+                        updateTurboDataMeter(turboTotalBytes);
+                    },
+                    signal
+                });
+            }
+        }
+    } catch (e) {
+        console.warn('Turbo loop stopped or aborted:', e);
+    } finally {
+        stopTurboMode();
+    }
+}
+
+function updateTurboDataMeter(bytes) {
+    const heroVal = document.getElementById('dataHeroVal');
+    const heroUnit = document.getElementById('dataHeroUnit');
+    const mb = bytes / (1024 * 1024);
+
+    if (mb >= 1024) {
+        if (heroVal) heroVal.innerText = (mb / 1024).toFixed(2);
+        if (heroUnit) heroUnit.innerText = 'GB';
+    } else {
+        if (heroVal) heroVal.innerText = mb.toFixed(2);
+        if (heroUnit) heroUnit.innerText = 'MB';
+    }
+}
 
 window.selectTestProfile = function(profile) {
     currentTestProfile = profile;
@@ -382,7 +571,6 @@ async function startFullSpeedTest() {
                 if (testProgressText) testProgressText.innerText = stageName;
             },
             onProgressUpdate: (phase, data) => {
-                // Pass raw measurement to rolling buffer (does NOT force raw UI jumps)
                 speedSmoother.pushRawSample(data.instantMbps);
                 updateLiveChart(speedSmoother.targetSpeed);
 
@@ -398,7 +586,6 @@ async function startFullSpeedTest() {
 
         activeResult = result;
 
-        // Smooth Final Result Animation (Glides from live speed to final result over 400ms)
         speedSmoother.animateToFinal(result.download, 400, (currentVal) => {
             if (liveSpeedNum) liveSpeedNum.innerText = currentVal.toFixed(1);
         }, () => {
@@ -406,7 +593,6 @@ async function startFullSpeedTest() {
             if (valUpload) valUpload.innerText = result.upload.toFixed(1);
         });
 
-        // Render Secondary Metrics
         if (valPing) valPing.innerText = result.ping;
         if (valJitter) valJitter.innerText = result.jitter;
 
@@ -487,7 +673,7 @@ window.downloadShareCard = function() {
 
 // Mode Switcher
 window.switchMode = function(mode) {
-    if (isRunning) return;
+    if (isRunning || isTurboRunning) return;
     currentMode = mode;
     const btnNet = document.getElementById('modeInternetBtn');
     const btnLoc = document.getElementById('modeLocalBtn');
