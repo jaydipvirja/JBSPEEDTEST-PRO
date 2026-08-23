@@ -1,6 +1,6 @@
-// Packet Loss Module - Lightweight Probe Loss Estimator with Browser Fallback
+// Packet Loss Module - Lightweight Probe Loss Estimator with "Unavailable" Browser Fallback
 
-export async function measurePacketLoss(endpointUrl, probesCount = 15, signal = null) {
+export async function measurePacketLoss(endpointUrl, probesCount = 12, signal = null) {
     let sent = 0;
     let received = 0;
 
@@ -20,17 +20,17 @@ export async function measurePacketLoss(endpointUrl, probesCount = 15, signal = 
                 received++;
             }
         } catch (e) {
-            // Failed probe counted as lost packet
+            // Failed probe
         }
         await new Promise(r => setTimeout(r, 40));
     }
 
-    if (sent === 0) {
+    if (sent === 0 || received === 0) {
         return {
             lossPercent: null,
-            displayText: 'Not reliably measurable in browser mode',
-            sent: 0,
-            received: 0
+            displayText: 'Unavailable',
+            sent: sent,
+            received: received
         };
     }
 
@@ -39,7 +39,7 @@ export async function measurePacketLoss(endpointUrl, probesCount = 15, signal = 
 
     return {
         lossPercent: lossPercent,
-        displayText: `${lossPercent}%`,
+        displayText: lossPercent > 0 ? `${lossPercent}%` : '0%',
         sent: sent,
         received: received
     };

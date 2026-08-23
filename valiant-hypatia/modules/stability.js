@@ -1,4 +1,4 @@
-// Stability Module - Statistical Fluctuation & Connection Stability Engine
+// Stability Module - Fluctuation Analysis & Network Stability Classifier
 
 export function calculateStability(samples) {
     if (!samples || samples.length < 3) {
@@ -27,7 +27,7 @@ export function calculateStability(samples) {
     const variabilityPercent = mean > 0 ? Math.round((stdDev / mean) * 100) : 0;
     const isUnstable = variabilityPercent > 35 || (max / Math.max(1, min)) > 3.5;
 
-    return {
+    const result = {
         status: isUnstable ? 'Unstable' : 'Stable',
         variabilityPercent: variabilityPercent,
         stdDev: parseFloat(stdDev.toFixed(2)),
@@ -36,4 +36,7 @@ export function calculateStability(samples) {
         min: parseFloat(min.toFixed(2)),
         max: parseFloat(max.toFixed(2))
     };
+
+    console.log('[MobileDataDebug] Stability Analysis Result:', result);
+    return result;
 }

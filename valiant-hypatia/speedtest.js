@@ -98,7 +98,7 @@ function updateNetworkInfoDisplay(info) {
     if (infoEff) infoEff.innerText = info.effectiveType;
 }
 
-// Handle network change during test
+// Handle network change & background tab visibility during test
 listenToNetworkChanges((info) => {
     updateNetworkInfoDisplay(info);
 
@@ -108,6 +108,18 @@ listenToNetworkChanges((info) => {
         isTurboRunning = false;
         
         if (netChangeModalBackdrop) netChangeModalBackdrop.classList.add('open');
+        resetTestUI();
+    }
+}, (visibilityMsg) => {
+    if (isRunning || isTurboRunning) {
+        if (activeAbortController) activeAbortController.abort();
+        isRunning = false;
+        isTurboRunning = false;
+
+        const testProgressText = document.getElementById('testProgressText');
+        if (testProgressText) {
+            testProgressText.innerText = visibilityMsg;
+        }
         resetTestUI();
     }
 });

@@ -1,7 +1,8 @@
-// Upload Module - Adaptive Concurrency & CORS-Free Payload Streaming Engine
+// Upload Module - Mobile Profile Adaptive Payload & Concurrency Engine
 
 import { calculateTrimmedAverage } from './resultValidation.js';
 import { createLoadedLatencyCollector } from './latency.js';
+import { NETWORK_PROFILES } from './networkDetection.js';
 
 export async function runUploadTest({
     server,
@@ -11,13 +12,14 @@ export async function runUploadTest({
     onProgress,
     signal
 }) {
+    const profile = isMobile ? NETWORK_PROFILES.MOBILE : NETWORK_PROFILES.WIFI;
     const startTime = performance.now();
     let totalBytesUploaded = 0;
     let warmUpBytesUploaded = 0;
-    const warmUpDurationMs = 1500;
+    const warmUpDurationMs = profile.warmupMs;
 
-    let activeStreamsCount = isMobile ? 2 : 3;
-    const maxStreamsCount = isMobile ? 3 : 5;
+    let activeStreamsCount = profile.initialConnections;
+    const maxStreamsCount = profile.maxConnections;
 
     let currentPayloadSize = isMobile ? 32 * 1024 : 128 * 1024;
     let rawArray = new Uint8Array(currentPayloadSize);
@@ -27,6 +29,7 @@ export async function runUploadTest({
     let payloadBlob = new Blob([rawArray], { type: 'text/plain' });
 
     const samples = [];
+    let previousSpeed = 0;
 
     const uploadEndpoint = server.uploadUrl.startsWith('http')
         ? server.uploadUrl
@@ -53,21 +56,21 @@ export async function runUploadTest({
                 samples.push(instantMbps);
             }
 
-            let newPayloadSize = currentPayloadSize;
-            if (instantMbps > 50) {
-                newPayloadSize = 2 * 1024 * 1024;
-                if (activeStreamsCount < maxStreamsCount) activeStreamsCount++;
-            } else if (instantMbps > 18) {
-                newPayloadSize = 1 * 1024 * 1024;
-            } else if (instantMbps > 5) {
-                newPayloadSize = 512 * 1024;
-            } else if (instantMbps > 1.2) {
-                newPayloadSize = 128 * 1024;
-            } else if (instantMbps > 0.4) {
-                newPayloadSize = 64 * 1024;
-            } else {
-                newPayloadSize = 32 * 1024;
+            // Adaptive Concurrency: Scale up only if throughput improves
+            if (activeStreamsCount < maxStreamsCount) {
+                if (instantMbps > previousSpeed * 1.08 && instantMbps > 2.0) {
+                    activeStreamsCount++;
+                    console.log(`[MobileDataDebug] Upload Concurrency Scaled UP to ${activeStreamsCount} connections (Instant: ${instantMbps.toFixed(1)} Mbps)`);
+                }
             }
+            previousSpeed = instantMbps;
+
+            let newPayloadSize = currentPayloadSize;
+            if (instantMbps > 40) newPayloadSize = 1 * 1024 * 1024;
+            else if (instantMbps > 12) newPayloadSize = 512 * 1024;
+            else if (instantMbps > 3) newPayloadSize = 128 * 1024;
+            else if (instantMbps > 0.8) newPayloadSize = 64 * 1024;
+            else newPayloadSize = 32 * 1024;
 
             if (newPayloadSize !== currentPayloadSize) {
                 currentPayloadSize = newPayloadSize;
@@ -148,6 +151,15 @@ export async function runUploadTest({
         : (measurementBytes * 8) / (measurementDurationSec * 1024 * 1024);
 
     const finalMbps = Math.max(0.1, parseFloat(trimmedMbps.toFixed(1)));
+
+    console.log('[MobileDataDebug] Upload Test Completed:', {
+        profile: profile.type,
+        finalMbps,
+        totalBytesUploaded,
+        warmUpBytesUploaded,
+        samplesCount: samples.length,
+        loadedLatency: uploadLoadedLatency
+    });
 
     return {
         mbps: finalMbps,

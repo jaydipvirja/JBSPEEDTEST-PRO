@@ -1,7 +1,8 @@
-// Download Module - Adaptive Concurrency & Progressive Throughput Engine
+// Download Module - Mobile Profile Adaptive Concurrency & Warm-up Engine
 
 import { calculateTrimmedAverage } from './resultValidation.js';
 import { createLoadedLatencyCollector } from './latency.js';
+import { NETWORK_PROFILES } from './networkDetection.js';
 
 export async function runDownloadTest({
     server,
@@ -11,17 +12,19 @@ export async function runDownloadTest({
     onProgress,
     signal
 }) {
+    const profile = isMobile ? NETWORK_PROFILES.MOBILE : NETWORK_PROFILES.WIFI;
     const startTime = performance.now();
     let totalBytesReceived = 0;
     let warmUpBytesReceived = 0;
-    const warmUpDurationMs = 1500;
+    const warmUpDurationMs = profile.warmupMs;
 
-    // Adaptive Concurrency: Start with 2 connections on mobile, 3 on desktop, scale up to 6
-    let activeStreamsCount = isMobile ? 2 : 3;
-    const maxStreamsCount = isMobile ? 4 : 6;
+    // Mobile Data starts at 2 connections. Wi-Fi starts at 4.
+    let activeStreamsCount = profile.initialConnections;
+    const maxStreamsCount = profile.maxConnections;
 
-    let currentChunkSize = isMobile ? 128 * 1024 : 256 * 1024;
+    let currentChunkSize = isMobile ? 128 * 1024 : 512 * 1024;
     const samples = [];
+    let previousSpeed = 0;
 
     const downloadEndpoint = server.downloadUrl.startsWith('http')
         ? server.downloadUrl
@@ -31,7 +34,6 @@ export async function runDownloadTest({
         ? server.pingUrl
         : `${server.baseUrl}${server.pingUrl}`;
 
-    // Loaded Latency Collector (Bufferbloat during download)
     const loadedLatencyCollector = createLoadedLatencyCollector(pingEndpoint, signal);
 
     let windowBytes = 0;
@@ -45,25 +47,25 @@ export async function runDownloadTest({
         if (deltaSec >= 0.10) {
             const instantMbps = (windowBytes * 8) / (deltaSec * 1024 * 1024);
 
-            // Record samples after warm-up phase (1.5 seconds)
+            // Record samples ONLY after the warm-up phase
             if (elapsedSec * 1000 > warmUpDurationMs && instantMbps > 0) {
                 samples.push(instantMbps);
             }
 
-            // Adaptive Concurrency Scaling based on speed
-            if (instantMbps > 120) {
-                currentChunkSize = 8 * 1024 * 1024;
-                if (activeStreamsCount < maxStreamsCount) activeStreamsCount++;
-            } else if (instantMbps > 40) {
-                currentChunkSize = 4 * 1024 * 1024;
-                if (activeStreamsCount < 4) activeStreamsCount++;
-            } else if (instantMbps > 10) {
-                currentChunkSize = 1 * 1024 * 1024;
-            } else if (instantMbps > 2) {
-                currentChunkSize = 512 * 1024;
-            } else {
-                currentChunkSize = 128 * 1024;
+            // Adaptive Concurrency: Only increase connections if speed improves meaningfully (>8%)
+            if (activeStreamsCount < maxStreamsCount) {
+                if (instantMbps > previousSpeed * 1.08 && instantMbps > 5.0) {
+                    activeStreamsCount++;
+                    console.log(`[MobileDataDebug] Download Concurrency Scaled UP to ${activeStreamsCount} connections (Instant: ${instantMbps.toFixed(1)} Mbps)`);
+                }
             }
+            previousSpeed = instantMbps;
+
+            // Adaptive Chunk Sizing
+            if (instantMbps > 100) currentChunkSize = 8 * 1024 * 1024;
+            else if (instantMbps > 30) currentChunkSize = 2 * 1024 * 1024;
+            else if (instantMbps > 8) currentChunkSize = 512 * 1024;
+            else currentChunkSize = 128 * 1024;
 
             const currentAverage = samples.length > 0
                 ? calculateTrimmedAverage(samples)
@@ -87,7 +89,6 @@ export async function runDownloadTest({
 
     async function runSingleDownloadWorker(workerId) {
         while (performance.now() - startTime < durationMs && (!signal || !signal.aborted)) {
-            // Adaptive concurrency check
             if (workerId >= activeStreamsCount) {
                 await new Promise(r => setTimeout(r, 100));
                 continue;
@@ -145,6 +146,15 @@ export async function runDownloadTest({
         : (measurementBytes * 8) / (measurementDurationSec * 1024 * 1024);
 
     const finalMbps = Math.max(0.1, parseFloat(trimmedMbps.toFixed(1)));
+
+    console.log('[MobileDataDebug] Download Test Completed:', {
+        profile: profile.type,
+        finalMbps,
+        totalBytesReceived,
+        warmUpBytesReceived,
+        samplesCount: samples.length,
+        loadedLatency: downloadLoadedLatency
+    });
 
     return {
         mbps: finalMbps,
