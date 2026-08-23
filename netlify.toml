@@ -1,0 +1,8 @@
+[build]
+  base = "valiant-hypatia"
+  publish = "valiant-hypatia/public"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
