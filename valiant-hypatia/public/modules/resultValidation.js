@@ -6,10 +6,11 @@ export function calculateTrimmedAverage(samples, trimFraction = 0.10) {
         return samples.reduce((a, b) => a + b, 0) / samples.length;
     }
     const sorted = [...samples].sort((a, b) => a - b);
-    // Ookla methodology: Discard bottom 25% (ramp-up samples) and average the upper 75% sustained peak samples
-    const dropBottom = Math.floor(sorted.length * 0.25);
-    const validSamples = sorted.slice(dropBottom);
-    if (validSamples.length === 0) return sorted[sorted.length - 1];
+    // Standard Ookla / Fast.com percentile trimming: Drop lower 20% (ramp-up) and upper 10% (burst spikes)
+    const start = Math.floor(sorted.length * 0.20);
+    const end = Math.max(start + 1, Math.floor(sorted.length * 0.90));
+    const validSamples = sorted.slice(start, end);
+    if (validSamples.length === 0) return sorted[Math.floor(sorted.length / 2)];
     return validSamples.reduce((a, b) => a + b, 0) / validSamples.length;
 }
 

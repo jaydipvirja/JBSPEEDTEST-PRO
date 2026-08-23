@@ -23,9 +23,23 @@ export async function fetchServerList() {
 
     return [
         {
+            id: 'srv-bom-in',
+            name: 'Mumbai (Cloudflare High-Speed Edge)',
+            provider: 'SpeedTest Pro CDN Edge',
+            location: 'Mumbai, IN',
+            lat: 19.0760,
+            lon: 72.8777,
+            baseUrl: 'https://speed.cloudflare.com',
+            pingUrl: 'https://speed.cloudflare.com/__down?bytes=0',
+            downloadUrl: 'https://speed.cloudflare.com/__down',
+            uploadUrl: 'https://speed.cloudflare.com/__up',
+            capacityGbps: 100,
+            status: 'online'
+        },
+        {
             id: 'srv-amd-in',
-            name: 'Ahmedabad (India)',
-            provider: 'SpeedTest Pro Node 1',
+            name: 'Ahmedabad (Local Loopback Node)',
+            provider: 'SpeedTest Pro Local Node',
             location: 'Ahmedabad, Gujarat, IN',
             lat: 23.0225,
             lon: 72.5714,
@@ -35,29 +49,19 @@ export async function fetchServerList() {
             uploadUrl: '/api/upload',
             capacityGbps: 10,
             status: 'online'
-        },
-        {
-            id: 'srv-bom-in',
-            name: 'Mumbai (India)',
-            provider: 'SpeedTest Pro Edge 2',
-            location: 'Mumbai, Maharashtra, IN',
-            lat: 19.0760,
-            lon: 72.8777,
-            baseUrl: 'https://speed.cloudflare.com',
-            pingUrl: 'https://speed.cloudflare.com/__down?bytes=0',
-            downloadUrl: 'https://speed.cloudflare.com/__down',
-            uploadUrl: 'https://speed.cloudflare.com/__up',
-            capacityGbps: 100,
-            status: 'online'
         }
     ];
 }
 
-export async function selectBestServer(userLat = 23.0225, userLon = 72.5714, signal = null) {
+export async function selectBestServer(userLat = 23.0225, userLon = 72.5714, signal = null, forceInternet = true) {
     const servers = await fetchServerList();
 
+    // Prefer external High-Speed CDN Edge for real internet speed tests
+    const externalServers = servers.filter(s => s.downloadUrl.startsWith('http'));
+    const serverPool = (forceInternet && externalServers.length > 0) ? externalServers : servers;
+
     // Stage 1: Candidate selection based on geographic distance
-    const candidateServers = servers.map(srv => ({
+    const candidateServers = serverPool.map(srv => ({
         ...srv,
         distanceKm: Math.round(haversineDistance(userLat, userLon, srv.lat, srv.lon))
     })).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 4);
