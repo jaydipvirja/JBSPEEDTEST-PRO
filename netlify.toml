@@ -1,6 +1,5 @@
 [build]
-  base = "valiant-hypatia"
-  publish = "valiant-hypatia/public"
+  publish = "public"
 
 [[redirects]]
   from = "/*"
