@@ -3,31 +3,31 @@
 export const NETWORK_PROFILES = {
     MOBILE: {
         type: 'Mobile Data',
-        warmupMs: 3000,
+        warmupMs: 500,
         minDurationMs: 6000,
         maxDurationMs: 10000,
-        initialConnections: 2,
-        maxConnections: 6,
+        initialConnections: 8,
+        maxConnections: 16,
         stabilityThreshold: 35,
         maxTestDataMB: 100
     },
     WIFI: {
         type: 'Wi-Fi',
-        warmupMs: 1200,
+        warmupMs: 500,
         minDurationMs: 5000,
         maxDurationMs: 8000,
-        initialConnections: 4,
-        maxConnections: 8,
+        initialConnections: 10,
+        maxConnections: 16,
         stabilityThreshold: 45,
         maxTestDataMB: 300
     },
     ETHERNET: {
         type: 'Ethernet',
-        warmupMs: 1000,
+        warmupMs: 500,
         minDurationMs: 5000,
         maxDurationMs: 8000,
-        initialConnections: 4,
-        maxConnections: 8,
+        initialConnections: 12,
+        maxConnections: 16,
         stabilityThreshold: 50,
         maxTestDataMB: 500
     }

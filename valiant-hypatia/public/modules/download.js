@@ -18,11 +18,11 @@ export async function runDownloadTest({
     let warmUpBytesReceived = 0;
     const warmUpDurationMs = profile.warmupMs;
 
-    // Mobile Data starts at 2 connections. Wi-Fi starts at 4.
+    // Mobile Data & Wi-Fi start at high concurrency for instant Ookla-style saturation
     let activeStreamsCount = profile.initialConnections;
     const maxStreamsCount = profile.maxConnections;
 
-    let currentChunkSize = isMobile ? 128 * 1024 : 512 * 1024;
+    let currentChunkSize = 2 * 1024 * 1024; // Start at 2MB chunks to minimize HTTP overhead
     const samples = [];
     let previousSpeed = 0;
 
@@ -52,20 +52,17 @@ export async function runDownloadTest({
                 samples.push(instantMbps);
             }
 
-            // Adaptive Concurrency: Only increase connections if speed improves meaningfully (>8%)
-            if (activeStreamsCount < maxStreamsCount) {
-                if (instantMbps > previousSpeed * 1.08 && instantMbps > 5.0) {
-                    activeStreamsCount++;
-                    console.log(`[MobileDataDebug] Download Concurrency Scaled UP to ${activeStreamsCount} connections (Instant: ${instantMbps.toFixed(1)} Mbps)`);
-                }
+            // Rapid Concurrency Scaling to saturate line speed
+            if (activeStreamsCount < maxStreamsCount && instantMbps > 2.0) {
+                activeStreamsCount = Math.min(maxStreamsCount, activeStreamsCount + 2);
+                console.log(`[MobileDataDebug] Download Concurrency Scaled UP to ${activeStreamsCount} connections (Instant: ${instantMbps.toFixed(1)} Mbps)`);
             }
             previousSpeed = instantMbps;
 
             // Adaptive Chunk Sizing
-            if (instantMbps > 100) currentChunkSize = 8 * 1024 * 1024;
-            else if (instantMbps > 30) currentChunkSize = 2 * 1024 * 1024;
-            else if (instantMbps > 8) currentChunkSize = 512 * 1024;
-            else currentChunkSize = 128 * 1024;
+            if (instantMbps > 60) currentChunkSize = 8 * 1024 * 1024;
+            else if (instantMbps > 20) currentChunkSize = 4 * 1024 * 1024;
+            else currentChunkSize = 2 * 1024 * 1024;
 
             const currentAverage = samples.length > 0
                 ? calculateTrimmedAverage(samples)

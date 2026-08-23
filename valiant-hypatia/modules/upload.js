@@ -21,7 +21,7 @@ export async function runUploadTest({
     let activeStreamsCount = profile.initialConnections;
     const maxStreamsCount = profile.maxConnections;
 
-    let currentPayloadSize = isMobile ? 32 * 1024 : 128 * 1024;
+    let currentPayloadSize = 512 * 1024; // Start at 512KB payload
     let rawArray = new Uint8Array(currentPayloadSize);
     for (let i = 0; i < currentPayloadSize; i += 64) {
         rawArray[i] = Math.floor(Math.random() * 256);
@@ -56,21 +56,17 @@ export async function runUploadTest({
                 samples.push(instantMbps);
             }
 
-            // Adaptive Concurrency: Scale up only if throughput improves
-            if (activeStreamsCount < maxStreamsCount) {
-                if (instantMbps > previousSpeed * 1.08 && instantMbps > 2.0) {
-                    activeStreamsCount++;
-                    console.log(`[MobileDataDebug] Upload Concurrency Scaled UP to ${activeStreamsCount} connections (Instant: ${instantMbps.toFixed(1)} Mbps)`);
-                }
+            // Rapid Concurrency Scaling
+            if (activeStreamsCount < maxStreamsCount && instantMbps > 1.0) {
+                activeStreamsCount = Math.min(maxStreamsCount, activeStreamsCount + 2);
+                console.log(`[MobileDataDebug] Upload Concurrency Scaled UP to ${activeStreamsCount} connections (Instant: ${instantMbps.toFixed(1)} Mbps)`);
             }
             previousSpeed = instantMbps;
 
             let newPayloadSize = currentPayloadSize;
-            if (instantMbps > 40) newPayloadSize = 1 * 1024 * 1024;
-            else if (instantMbps > 12) newPayloadSize = 512 * 1024;
-            else if (instantMbps > 3) newPayloadSize = 128 * 1024;
-            else if (instantMbps > 0.8) newPayloadSize = 64 * 1024;
-            else newPayloadSize = 32 * 1024;
+            if (instantMbps > 30) newPayloadSize = 2 * 1024 * 1024;
+            else if (instantMbps > 10) newPayloadSize = 1 * 1024 * 1024;
+            else newPayloadSize = 512 * 1024;
 
             if (newPayloadSize !== currentPayloadSize) {
                 currentPayloadSize = newPayloadSize;

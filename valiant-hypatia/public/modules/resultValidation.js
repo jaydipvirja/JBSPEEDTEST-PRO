@@ -6,10 +6,11 @@ export function calculateTrimmedAverage(samples, trimFraction = 0.10) {
         return samples.reduce((a, b) => a + b, 0) / samples.length;
     }
     const sorted = [...samples].sort((a, b) => a - b);
-    const trimCount = Math.floor(sorted.length * trimFraction);
-    const trimmed = sorted.slice(trimCount, sorted.length - trimCount);
-    if (trimmed.length === 0) return sorted[Math.floor(sorted.length / 2)];
-    return trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+    // Ookla methodology: Discard bottom 25% (ramp-up samples) and average the upper 75% sustained peak samples
+    const dropBottom = Math.floor(sorted.length * 0.25);
+    const validSamples = sorted.slice(dropBottom);
+    if (validSamples.length === 0) return sorted[sorted.length - 1];
+    return validSamples.reduce((a, b) => a + b, 0) / validSamples.length;
 }
 
 export function validateSpeedResult(samples, rawMbps) {
