@@ -1,0 +1,16 @@
+{
+  "name": "SpeedTest Pro Mobile",
+  "short_name": "SpeedTest",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B0F17",
+  "theme_color": "#00F2FE",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

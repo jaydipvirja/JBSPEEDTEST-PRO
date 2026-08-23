@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0B0F17">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SpeedTest Pro">
+    <link rel="manifest" href="manifest.json">
+    <title>SpeedTest Pro | Turbo Download & Upload Bandwidth Analyzer</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="mobile-app-body">
+    <!-- Ambient Background Glows -->
+    <div class="app-background">
+        <div class="ambient-glow cyan" id="ambientCyan"></div>
+        <div class="ambient-glow purple" id="ambientPurple"></div>
+    </div>
+
+    <!-- Mobile Native App Shell Container -->
+    <div class="mobile-app-shell">
+        
+        <!-- Mobile App Status & Header Bar -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                </div>
+                <div class="brand-text-wrap">
+                    <h1 class="brand-title">SPEED<span class="gradient-text">TEST</span> <span class="pro-tag">PRO</span></h1>
+                    <span class="brand-subtitle" id="deviceSubtitle">Mobile Edition</span>
+                </div>
+            </div>
+
+            <!-- Server Selector Badge, QR Modal & Mode -->
+            <div class="header-controls">
+                <button class="qr-btn" onclick="openQrModal()" title="Open on Mobile without typing IP">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="14" width="7" height="7"></rect>
+                        <rect x="3" y="14" width="7" height="7"></rect>
+                    </svg>
+                    <span>📱 Scan QR</span>
+                </button>
+                <div class="server-badge" id="serverInfoBadge">
+                    <span class="pulse-dot"></span>
+                    <span id="targetServerName">Cloudflare CDN</span>
+                </div>
+                <div class="mode-switch">
+                    <button class="mode-btn active" id="modeInternetBtn" onclick="switchMode('internet')">WAN</button>
+                    <button class="mode-btn" id="modeLocalBtn" onclick="switchMode('local')">LAN</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- QR Code Modal (Instant Mobile Connect without typing IP) -->
+        <div class="qr-modal-backdrop" id="qrModalBackdrop" onclick="closeQrModal(event)">
+            <div class="qr-modal-card">
+                <div class="qr-modal-header">
+                    <h3>📱 Mobile Instant Connect</h3>
+                    <button class="qr-close-btn" onclick="closeQrModal()">&times;</button>
+                </div>
+                <p class="qr-modal-desc">મોબાઇલના કેમેરાથી આ QR Code સ્કેન કરો (IP ટાઈપ કરવાની જરૂર નથી):</p>
+                <div class="qr-code-wrapper">
+                    <img id="qrCodeImg" src="" alt="Mobile QR Code" />
+                </div>
+                <div class="qr-modal-url" id="qrModalUrlText">http://192.168.1.115:8000</div>
+                <div class="qr-pwa-tip">
+                    💡 <strong>Tip:</strong> મોબાઇલમાં ખૂલ્યા પછી <em>"Add to Home screen"</em> કરશો એટલે અસલ મોબાઇલ એપ બની જશે!
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Tab Content Area -->
+        <div class="tab-content-container">
+            
+            <!-- TAB 1: Speed Test View (Default) -->
+            <section id="tabSpeedTest" class="tab-panel active">
+                
+                <!-- Speed Gauge & Action Section -->
+                <div class="card speed-gauge-card" id="mainGaugeCard">
+                    <div class="card-header">
+                        <div class="status-indicator">
+                            <span id="testStateBadge" class="badge idle">READY</span>
+                            <span id="testProgressText" class="progress-status">Select a test mode below to begin</span>
+                        </div>
+                    </div>
+
+                    <!-- Canvas Speedometer Gauge -->
+                    <div class="gauge-container">
+                        <canvas id="gaugeCanvas" width="460" height="340"></canvas>
+                        <div class="gauge-readout">
+                            <div class="current-speed-number" id="liveSpeedNumber">0.0</div>
+                            <div class="speed-unit">Mbps</div>
+                            <div class="speed-stage" id="speedStageLabel">CURRENT SPEED</div>
+                        </div>
+                    </div>
+
+                    <!-- Turbo Target Limit Selector -->
+                    <div class="turbo-controls-row">
+                        <div class="limit-selector-group">
+                            <label for="turboLimitSelect" class="limit-label">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                                </svg>
+                                Data Limit:
+                            </label>
+                            <select id="turboLimitSelect" class="limit-dropdown">
+                                <option value="unlimited" selected>♾️ Unlimited (Until Stopped)</option>
+                                <option value="50">50 MB</option>
+                                <option value="100">100 MB</option>
+                                <option value="250">250 MB</option>
+                                <option value="500">500 MB</option>
+                                <option value="1024">1.0 GB</option>
+                                <option value="2048">2.0 GB</option>
+                                <option value="5120">5.0 GB</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons: Standard Start, Turbo Download & Turbo Upload -->
+                    <div class="action-container-triple">
+                        <!-- 1. Standard Quick Test Button -->
+                        <button id="startTestBtn" class="btn-action btn-start" onclick="toggleTest()">
+                            <span class="btn-glow"></span>
+                            <span class="btn-content">
+                                <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor">
+                                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                </svg>
+                                <span id="btnLabel">FULL TEST</span>
+                            </span>
+                        </button>
+
+                        <!-- 2. 🔥 TURBO Continuous Download Button -->
+                        <button id="turboDownBtn" class="btn-action btn-turbo-down" onclick="toggleTurboMode('download')">
+                            <span class="turbo-glow"></span>
+                            <span class="btn-content">
+                                <svg class="flame-icon" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2c-.4 1.8-1.5 3.3-3.2 4.5C6.7 8 5.5 10.3 5.5 13c0 3.6 2.9 6.5 6.5 6.5s6.5-2.9 6.5-6.5c0-1.8-.7-3.4-1.9-4.7C15.8 7.3 15 5.5 15 3.5c0-.5-.1-1-.2-1.5-.7.8-1.7 1.5-2.8 1.9V2zm0 15c-1.9 0-3.5-1.6-3.5-3.5 0-1.1.5-2.1 1.4-2.8.5-.4 1.1-1 1.5-1.7.3.7.8 1.3 1.5 1.7.9.7 1.4 1.7 1.4 2.8 0 1.9-1.6 3.5-3.5 3.5z"/>
+                                </svg>
+                                <span id="turboDownBtnLabel">TURBO DOWN</span>
+                            </span>
+                        </button>
+
+                        <!-- 3. 📤 TURBO Continuous Upload Button -->
+                        <button id="turboUpBtn" class="btn-action btn-turbo-up" onclick="toggleTurboMode('upload')">
+                            <span class="turbo-glow-purple"></span>
+                            <span class="btn-content">
+                                <svg class="upload-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                                <span id="turboUpBtnLabel">TURBO UP</span>
+                            </span>
+                        </button>
+                    </div>
+
+                    <!-- 📦 PROMINENT DATA CONSUMPTION LIVE METER (MB / GB) -->
+                    <div class="data-consumed-dashboard" id="turboStatsBar" style="display: none;">
+                        <div class="data-hero-card" id="dataHeroCard">
+                            <div class="data-hero-header">
+                                <span class="pulse-fire-dot" id="pulseDotType"></span>
+                                <span id="dataHeroLabel">TOTAL NET CONSUMED (વપરાયેલો ડેટા)</span>
+                            </div>
+                            <div class="data-hero-readout">
+                                <span class="data-hero-number" id="dataHeroVal">0.00</span>
+                                <span class="data-hero-unit" id="dataHeroUnit">MB</span>
+                            </div>
+                            <div class="data-hero-sub" id="dataBurnRate">Transfer Rate: ~0.0 MB/s</div>
+                        </div>
+
+                        <!-- Secondary Metrics in Turbo HUD -->
+                        <div class="turbo-grid-hud">
+                            <div class="hud-item">
+                                <span class="hud-lbl">ELAPSED TIME</span>
+                                <span class="hud-val font-mono" id="turboTimer">00:00</span>
+                            </div>
+                            <div class="hud-item">
+                                <span class="hud-lbl">AVG SPEED</span>
+                                <span class="hud-val font-mono highlight-orange" id="turboAvgSpeed">0.0 Mbps</span>
+                            </div>
+                            <div class="hud-item">
+                                <span class="hud-lbl">PEAK SPEED</span>
+                                <span class="hud-val font-mono highlight-cyan" id="turboPeakSpeed">0.0 Mbps</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Bandwidth Chart during test -->
+                    <div class="chart-wrapper">
+                        <div class="chart-header">
+                            <span id="chartModeLabel">LIVE BANDWIDTH STREAM</span>
+                            <span id="chartPeakSpeed">Peak: 0.00 Mbps</span>
+                        </div>
+                        <canvas id="liveChartCanvas" width="500" height="90"></canvas>
+                    </div>
+                </div>
+
+                <!-- Primary Metrics Cards -->
+                <div class="metrics-grid">
+                    <!-- Ping -->
+                    <div class="metric-card" id="cardPing">
+                        <div class="metric-icon-wrap ping-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                        </div>
+                        <div class="metric-details">
+                            <span class="metric-name">PING</span>
+                            <div class="metric-value-row">
+                                <span class="metric-val" id="valPing">--</span>
+                                <span class="metric-unit">ms</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Jitter -->
+                    <div class="metric-card" id="cardJitter">
+                        <div class="metric-icon-wrap jitter-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                            </svg>
+                        </div>
+                        <div class="metric-details">
+                            <span class="metric-name">JITTER</span>
+                            <div class="metric-value-row">
+                                <span class="metric-val" id="valJitter">--</span>
+                                <span class="metric-unit">ms</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Download -->
+                    <div class="metric-card" id="cardDownload">
+                        <div class="metric-icon-wrap download-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                        </div>
+                        <div class="metric-details">
+                            <span class="metric-name">DOWNLOAD</span>
+                            <div class="metric-value-row">
+                                <span class="metric-val highlight-cyan" id="valDownload">--</span>
+                                <span class="metric-unit">Mbps</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Upload -->
+                    <div class="metric-card" id="cardUpload">
+                        <div class="metric-icon-wrap upload-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                        </div>
+                        <div class="metric-details">
+                            <span class="metric-name">UPLOAD</span>
+                            <div class="metric-value-row">
+                                <span class="metric-val highlight-purple" id="valUpload">--</span>
+                                <span class="metric-unit">Mbps</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quality Rating Assessment (Gaming, 4K, Calls) -->
+                <div class="card ratings-card">
+                    <h3 class="section-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                        </svg>
+                        Experience Quality Score
+                    </h3>
+                    <div class="rating-badges-grid">
+                        <div class="rating-item" id="rateGaming">
+                            <div class="rating-icon">🎮</div>
+                            <div class="rating-text">
+                                <span class="rating-title">Gaming</span>
+                                <span class="rating-grade" id="gradeGaming">--</span>
+                            </div>
+                        </div>
+                        <div class="rating-item" id="rateStreaming">
+                            <div class="rating-icon">🎬</div>
+                            <div class="rating-text">
+                                <span class="rating-title">4K Stream</span>
+                                <span class="rating-grade" id="gradeStreaming">--</span>
+                            </div>
+                        </div>
+                        <div class="rating-item" id="rateVideoCall">
+                            <div class="rating-icon">📞</div>
+                            <div class="rating-text">
+                                <span class="rating-title">Video Call</span>
+                                <span class="rating-grade" id="gradeVideoCall">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: History & Performance Log -->
+            <section id="tabHistory" class="tab-panel">
+                <div class="card history-section">
+                    <div class="history-header">
+                        <div class="history-title-group">
+                            <h2 class="section-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                Test History
+                            </h2>
+                            <span class="history-count" id="historyCountBadge">0 Tests</span>
+                        </div>
+                        <div class="history-actions">
+                            <button class="btn-secondary" onclick="exportHistoryCSV()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                                CSV
+                            </button>
+                            <button class="btn-secondary btn-danger" onclick="clearHistoryRecords()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                                Clear
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- History Stats Banner -->
+                    <div class="history-stats-banner">
+                        <div class="hist-stat">
+                            <span class="hist-stat-lbl">AVG DOWNLOAD</span>
+                            <span class="hist-stat-val font-mono" id="histAvgDown">-- Mbps</span>
+                        </div>
+                        <div class="hist-stat">
+                            <span class="hist-stat-lbl">MAX DOWNLOAD</span>
+                            <span class="hist-stat-val font-mono highlight-cyan" id="histMaxDown">-- Mbps</span>
+                        </div>
+                        <div class="hist-stat">
+                            <span class="hist-stat-lbl">AVG UPLOAD</span>
+                            <span class="hist-stat-val font-mono highlight-purple" id="histAvgUp">-- Mbps</span>
+                        </div>
+                        <div class="hist-stat">
+                            <span class="hist-stat-lbl">AVG PING</span>
+                            <span class="hist-stat-val font-mono" id="histAvgPing">-- ms</span>
+                        </div>
+                    </div>
+
+                    <!-- History Table with Data Used Column -->
+                    <div class="table-container">
+                        <table class="history-table" id="historyTable">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Mode</th>
+                                    <th>Ping</th>
+                                    <th>Down</th>
+                                    <th>Up</th>
+                                    <th>Data Used (વપરાશ)</th>
+                                    <th>ISP</th>
+                                    <th>Grade</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyTableBody">
+                                <tr class="empty-row">
+                                    <td colspan="8">No test records yet. Run your first speed test!</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: Network & Info -->
+            <section id="tabInfo" class="tab-panel">
+                <div class="card network-info-card">
+                    <h3 class="section-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="2" y1="12" x2="22" y2="12"></line>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                        </svg>
+                        Client & Network Information
+                    </h3>
+                    <div class="info-table">
+                        <div class="info-row">
+                            <span class="info-label">ISP / Carrier:</span>
+                            <span class="info-value" id="infoIsp">Detecting...</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Public IP:</span>
+                            <span class="info-value font-mono" id="infoIp">Detecting...</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Location / City:</span>
+                            <span class="info-value" id="infoLocation">Detecting...</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Device / Platform:</span>
+                            <span class="info-value" id="infoOs">Detecting...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card about-app-card">
+                    <h3 class="section-title">⚡ About SpeedTest Pro</h3>
+                    <p class="about-desc">
+                        High-precision bandwidth testing tool with continuous <strong>TURBO Download & Upload</strong> stress-test modes, real-time MB/GB data tracker, and low latency diagnostics.
+                    </p>
+                    <div class="app-version-badge">Version 2.4.0 &bull; Dual Turbo Edition</div>
+                </div>
+            </section>
+
+        </div>
+
+        <!-- Mobile Bottom Native Navigation Bar -->
+        <nav class="mobile-bottom-nav">
+            <button class="nav-tab active" onclick="switchTab('tabSpeedTest', this)">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                </div>
+                <span>Speed Test</span>
+            </button>
+
+            <button class="nav-tab" onclick="switchTab('tabHistory', this)">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <span>History</span>
+            </button>
+
+            <button class="nav-tab" onclick="switchTab('tabInfo', this)">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                </div>
+                <span>Network Info</span>
+            </button>
+        </nav>
+
+    </div>
+
+    <!-- Scripts -->
+    <script src="history.js"></script>
+    <script src="speedtest.js"></script>
+    <script>
+        function switchTab(tabId, btn) {
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+            
+            const target = document.getElementById(tabId);
+            if (target) target.classList.add('active');
+            if (btn) btn.classList.add('active');
+            
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>
