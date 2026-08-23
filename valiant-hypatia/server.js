@@ -62,6 +62,101 @@ const server = http.createServer((req, res) => {
 
     // --- API Endpoints ---
 
+    // 0. Server List Registry (Stage 1 & Stage 2 Candidate Selection)
+    if (pathname === '/api/servers') {
+        const servers = [
+            {
+                id: 'srv-amd-in',
+                name: 'Ahmedabad (India)',
+                provider: 'SpeedTest Pro Node 1',
+                location: 'Ahmedabad, Gujarat, IN',
+                lat: 23.0225,
+                lon: 72.5714,
+                baseUrl: '',
+                pingUrl: '/api/ping',
+                downloadUrl: '/api/download',
+                uploadUrl: '/api/upload',
+                capacityGbps: 10,
+                status: 'online'
+            },
+            {
+                id: 'srv-bom-in',
+                name: 'Mumbai (India)',
+                provider: 'SpeedTest Pro Edge 2',
+                location: 'Mumbai, Maharashtra, IN',
+                lat: 19.0760,
+                lon: 72.8777,
+                baseUrl: 'https://speed.cloudflare.com',
+                pingUrl: 'https://speed.cloudflare.com/__down?bytes=0',
+                downloadUrl: 'https://speed.cloudflare.com/__down',
+                uploadUrl: 'https://speed.cloudflare.com/__up',
+                capacityGbps: 100,
+                status: 'online'
+            },
+            {
+                id: 'srv-del-in',
+                name: 'Delhi (India)',
+                provider: 'SpeedTest Pro Edge 3',
+                location: 'New Delhi, IN',
+                lat: 28.6139,
+                lon: 77.2090,
+                baseUrl: 'https://speed.cloudflare.com',
+                pingUrl: 'https://speed.cloudflare.com/__down?bytes=0',
+                downloadUrl: 'https://speed.cloudflare.com/__down',
+                uploadUrl: 'https://speed.cloudflare.com/__up',
+                capacityGbps: 50,
+                status: 'online'
+            },
+            {
+                id: 'srv-blr-in',
+                name: 'Bengaluru (India)',
+                provider: 'SpeedTest Pro Edge 4',
+                location: 'Bengaluru, Karnataka, IN',
+                lat: 12.9716,
+                lon: 77.5946,
+                baseUrl: 'https://speed.cloudflare.com',
+                pingUrl: 'https://speed.cloudflare.com/__down?bytes=0',
+                downloadUrl: 'https://speed.cloudflare.com/__down',
+                uploadUrl: 'https://speed.cloudflare.com/__up',
+                capacityGbps: 50,
+                status: 'online'
+            },
+            {
+                id: 'srv-sin-sg',
+                name: 'Singapore (SEA Hub)',
+                provider: 'SpeedTest Pro Edge 5',
+                location: 'Singapore, SG',
+                lat: 1.3521,
+                lon: 103.8198,
+                baseUrl: 'https://speed.cloudflare.com',
+                pingUrl: 'https://speed.cloudflare.com/__down?bytes=0',
+                downloadUrl: 'https://speed.cloudflare.com/__down',
+                uploadUrl: 'https://speed.cloudflare.com/__up',
+                capacityGbps: 100,
+                status: 'online'
+            }
+        ];
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        res.setHeader('Content-Type', 'application/json');
+        res.writeHead(200);
+        res.end(JSON.stringify(servers));
+        return;
+    }
+
+    // 0.1 Health Check Endpoint
+    if (pathname === '/api/health') {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        res.setHeader('Content-Type', 'application/json');
+        res.writeHead(200);
+        res.end(JSON.stringify({
+            status: 'online',
+            uptimeSec: Math.floor(process.uptime()),
+            timestamp: Date.now(),
+            loadAvg: os.loadavg()
+        }));
+        return;
+    }
+
     // 1. Ping / Latency check endpoint
     if (pathname === '/api/ping') {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');

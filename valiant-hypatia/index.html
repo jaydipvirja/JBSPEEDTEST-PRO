@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="SpeedTest Pro">
     <link rel="manifest" href="manifest.json">
-    <title>SpeedTest Pro | Turbo Download & Upload Bandwidth Analyzer</title>
+    <title>SpeedTest Pro | Ookla-Style Accurate Internet Speed Test</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,15 +35,19 @@
                 </div>
                 <div class="brand-text-wrap">
                     <h1 class="brand-title">SPEED<span class="gradient-text">TEST</span> <span class="pro-tag">PRO</span></h1>
-                    <span class="brand-subtitle" id="deviceSubtitle">Mobile Edition</span>
+                    <span class="brand-subtitle" id="deviceSubtitle">Mobile & Broadband Edition</span>
                 </div>
             </div>
 
-            <!-- Server Selector Badge & Mode -->
+            <!-- Connection Type Badge & Mode -->
             <div class="header-controls">
+                <div class="connection-type-badge" id="connTypeBadge" title="Detected Connection Type">
+                    <span class="conn-dot"></span>
+                    <span id="connTypeName">Connection: Detecting...</span>
+                </div>
                 <div class="server-badge" id="serverInfoBadge">
                     <span class="pulse-dot"></span>
-                    <span id="targetServerName">Cloudflare CDN</span>
+                    <span id="targetServerName">Best Server Selecting...</span>
                 </div>
                 <div class="mode-switch">
                     <button class="mode-btn active" id="modeInternetBtn" onclick="switchMode('internet')">WAN</button>
@@ -52,20 +56,67 @@
             </div>
         </header>
 
-        <!-- QR Code Modal (Instant Mobile Connect without typing IP) -->
-        <div class="qr-modal-backdrop" id="qrModalBackdrop" onclick="closeQrModal(event)">
-            <div class="qr-modal-card">
-                <div class="qr-modal-header">
-                    <h3>📱 Mobile Instant Connect</h3>
-                    <button class="qr-close-btn" onclick="closeQrModal()">&times;</button>
+        <!-- 8-Stage Progress Pipeline Indicator -->
+        <div class="pipeline-progress-container" id="pipelineProgressBox" style="display: none;">
+            <div class="pipeline-step-bar">
+                <div class="pipeline-fill" id="pipelineFill" style="width: 12%;"></div>
+            </div>
+            <div class="pipeline-text-row">
+                <span class="pipeline-stage-lbl" id="pipelineStageNum">Stage 1/8</span>
+                <span class="pipeline-stage-name" id="pipelineStageText">Detecting Connection...</span>
+            </div>
+        </div>
+
+        <!-- Network Change Alert Modal -->
+        <div class="modal-backdrop" id="netChangeModalBackdrop">
+            <div class="modal-card modal-alert">
+                <div class="modal-header">
+                    <h3>⚠️ Network Changed</h3>
                 </div>
-                <p class="qr-modal-desc">મોબાઇલના કેમેરાથી આ QR Code સ્કેન કરો (IP ટાઈપ કરવાની જરૂર નથી):</p>
-                <div class="qr-code-wrapper">
-                    <img id="qrCodeImg" src="" alt="Mobile QR Code" />
+                <p class="modal-desc">
+                    Your network connection changed during testing (e.g. Wi-Fi to Mobile Data). The current test was stopped to maintain accuracy.
+                </p>
+                <button class="btn-primary-full" onclick="closeNetChangeModal()">Run Test Again</button>
+            </div>
+        </div>
+
+        <!-- Mobile Data Usage Warning & Profile Modal -->
+        <div class="modal-backdrop" id="mobileDataModalBackdrop">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>📶 Mobile Data Detected</h3>
+                    <button class="qr-close-btn" onclick="closeMobileDataModal()">&times;</button>
                 </div>
-                <div class="qr-modal-url" id="qrModalUrlText">http://192.168.1.115:8000</div>
-                <div class="qr-pwa-tip">
-                    💡 <strong>Tip:</strong> મોબાઇલમાં ખૂલ્યા પછી <em>"Add to Home screen"</em> કરશો એટલે અસલ મોબાઇલ એપ બની જશે!
+                <p class="modal-desc">
+                    Speed testing on cellular data consumes mobile data. Choose your test profile:
+                </p>
+                <div class="profile-options">
+                    <button class="profile-card-btn active" id="btnProfileStandard" onclick="selectTestProfile('standard')">
+                        <div class="prof-title">Standard Test (~20 - 50 MB)</div>
+                        <div class="prof-sub">Lower data usage, quick throughput measurement</div>
+                    </button>
+                    <button class="profile-card-btn" id="btnProfileExtended" onclick="selectTestProfile('extended')">
+                        <div class="prof-title">Extended Test (~50 - 120 MB)</div>
+                        <div class="prof-sub">Higher accuracy & longer stability sampling</div>
+                    </button>
+                </div>
+                <button class="btn-primary-full" onclick="startTestWithProfile()">START SPEED TEST</button>
+            </div>
+        </div>
+
+        <!-- Share Result Modal -->
+        <div class="modal-backdrop" id="shareModalBackdrop" onclick="closeShareModal(event)">
+            <div class="modal-card share-card-modal">
+                <div class="modal-header">
+                    <h3>📤 Share Test Result</h3>
+                    <button class="qr-close-btn" onclick="closeShareModal()">&times;</button>
+                </div>
+                <div class="share-preview-box">
+                    <img id="shareCardImg" src="" alt="SpeedTest Result Card" style="width: 100%; border-radius: 8px;" />
+                </div>
+                <div class="share-actions-row">
+                    <button class="btn-secondary-full" onclick="copyShareText()">📋 Copy Result Text</button>
+                    <button class="btn-primary-full" onclick="downloadShareCard()">💾 Download Result Card</button>
                 </div>
             </div>
         </div>
@@ -81,7 +132,7 @@
                     <div class="card-header">
                         <div class="status-indicator">
                             <span id="testStateBadge" class="badge idle">READY</span>
-                            <span id="testProgressText" class="progress-status">Select a test mode below to begin</span>
+                            <span id="testProgressText" class="progress-status">Press START SPEED TEST to begin</span>
                         </div>
                     </div>
 
@@ -95,14 +146,14 @@
                         </div>
                     </div>
 
-                    <!-- Turbo Target Limit Selector -->
+                    <!-- Turbo Data Limit Selector -->
                     <div class="turbo-controls-row">
                         <div class="limit-selector-group">
                             <label for="turboLimitSelect" class="limit-label">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
                                 </svg>
-                                Data Limit:
+                                Turbo Limit:
                             </label>
                             <select id="turboLimitSelect" class="limit-dropdown">
                                 <option value="unlimited" selected>♾️ Unlimited (Until Stopped)</option>
@@ -111,8 +162,6 @@
                                 <option value="250">250 MB</option>
                                 <option value="500">500 MB</option>
                                 <option value="1024">1.0 GB</option>
-                                <option value="2048">2.0 GB</option>
-                                <option value="5120">5.0 GB</option>
                             </select>
                         </div>
                     </div>
@@ -126,7 +175,7 @@
                                 <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor">
                                     <polygon points="5 3 19 12 5 21 5 3"></polygon>
                                 </svg>
-                                <span id="btnLabel">FULL TEST</span>
+                                <span id="btnLabel">START SPEED TEST</span>
                             </span>
                         </button>
 
@@ -155,12 +204,12 @@
                         </button>
                     </div>
 
-                    <!-- 📦 PROMINENT DATA CONSUMPTION LIVE METER (MB / GB) -->
+                    <!-- DATA CONSUMED DASHBOARD -->
                     <div class="data-consumed-dashboard" id="turboStatsBar" style="display: none;">
                         <div class="data-hero-card" id="dataHeroCard">
                             <div class="data-hero-header">
                                 <span class="pulse-fire-dot" id="pulseDotType"></span>
-                                <span id="dataHeroLabel">TOTAL NET CONSUMED (વપરાયેલો ડેટા)</span>
+                                <span id="dataHeroLabel">TOTAL DATA CONSUMED</span>
                             </div>
                             <div class="data-hero-readout">
                                 <span class="data-hero-number" id="dataHeroVal">0.00</span>
@@ -169,7 +218,6 @@
                             <div class="data-hero-sub" id="dataBurnRate">Transfer Rate: ~0.0 MB/s</div>
                         </div>
 
-                        <!-- Secondary Metrics in Turbo HUD -->
                         <div class="turbo-grid-hud">
                             <div class="hud-item">
                                 <span class="hud-lbl">ELAPSED TIME</span>
@@ -186,7 +234,7 @@
                         </div>
                     </div>
 
-                    <!-- Live Bandwidth Chart during test -->
+                    <!-- Live Dual-Curve Bandwidth Chart -->
                     <div class="chart-wrapper">
                         <div class="chart-header">
                             <span id="chartModeLabel">LIVE BANDWIDTH STREAM</span>
@@ -207,7 +255,7 @@
                             </svg>
                         </div>
                         <div class="metric-details">
-                            <span class="metric-name">PING</span>
+                            <span class="metric-name">IDLE PING</span>
                             <div class="metric-value-row">
                                 <span class="metric-val" id="valPing">--</span>
                                 <span class="metric-unit">ms</span>
@@ -268,36 +316,70 @@
                     </div>
                 </div>
 
-                <!-- Quality Rating Assessment (Gaming, 4K, Calls) -->
-                <div class="card ratings-card">
+                <!-- Bufferbloat & Loaded Latency Card -->
+                <div class="card bufferbloat-card">
                     <h3 class="section-title">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
                         </svg>
-                        Experience Quality Score
+                        Latency Under Load (Bufferbloat Analysis)
                     </h3>
-                    <div class="rating-badges-grid">
-                        <div class="rating-item" id="rateGaming">
-                            <div class="rating-icon">🎮</div>
-                            <div class="rating-text">
-                                <span class="rating-title">Gaming</span>
-                                <span class="rating-grade" id="gradeGaming">--</span>
-                            </div>
+                    <div class="loaded-ping-grid">
+                        <div class="loaded-ping-item">
+                            <span class="lp-lbl">Idle Latency</span>
+                            <span class="lp-val" id="lpIdle">-- ms</span>
                         </div>
-                        <div class="rating-item" id="rateStreaming">
-                            <div class="rating-icon">🎬</div>
-                            <div class="rating-text">
-                                <span class="rating-title">4K Stream</span>
-                                <span class="rating-grade" id="gradeStreaming">--</span>
-                            </div>
+                        <div class="loaded-ping-item">
+                            <span class="lp-lbl">Download Latency</span>
+                            <span class="lp-val highlight-cyan" id="lpDown">-- ms</span>
                         </div>
-                        <div class="rating-item" id="rateVideoCall">
-                            <div class="rating-icon">📞</div>
-                            <div class="rating-text">
-                                <span class="rating-title">Video Call</span>
-                                <span class="rating-grade" id="gradeVideoCall">--</span>
-                            </div>
+                        <div class="loaded-ping-item">
+                            <span class="lp-lbl">Upload Latency</span>
+                            <span class="lp-val highlight-purple" id="lpUp">-- ms</span>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Quality Rating & Activity Recommendations Card -->
+                <div class="card ratings-card">
+                    <div class="rating-header-row">
+                        <h3 class="section-title">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                            </svg>
+                            Network Quality & Recommendations
+                        </h3>
+                        <div class="score-pill-badge" id="netScorePill">Score: --/100</div>
+                    </div>
+
+                    <!-- Practical Recommendations Grid -->
+                    <div class="recommendations-box" id="recommendationsBox">
+                        <div class="rec-group">
+                            <span class="rec-tag rec-excellent">⚡ Excellent For:</span>
+                            <span class="rec-text" id="recExcellentText">Run test to calculate</span>
+                        </div>
+                        <div class="rec-group">
+                            <span class="rec-tag rec-good">👍 Good For:</span>
+                            <span class="rec-text" id="recGoodText">--</span>
+                        </div>
+                    </div>
+
+                    <!-- Stability Badge & Share Button -->
+                    <div class="result-actions-footer">
+                        <div class="stability-badge-box">
+                            <span class="stab-lbl">Connection Stability:</span>
+                            <span class="stab-val badge-stable" id="valStability">Stable</span>
+                        </div>
+                        <button class="btn-secondary" id="btnShareResult" onclick="openShareModal()" style="display: none;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="18" cy="5" r="3"></circle>
+                                <circle cx="6" cy="12" r="3"></circle>
+                                <circle cx="18" cy="19" r="3"></circle>
+                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                            </svg>
+                            Share Result
+                        </button>
                     </div>
                 </div>
             </section>
@@ -314,6 +396,12 @@
                                 Test History
                             </h2>
                             <span class="history-count" id="historyCountBadge">0 Tests</span>
+                        </div>
+                        <div class="history-filter-pills">
+                            <button class="filter-pill active" onclick="filterHistoryTab('all', this)">All</button>
+                            <button class="filter-pill" onclick="filterHistoryTab('today', this)">Today</button>
+                            <button class="filter-pill" onclick="filterHistoryTab('7days', this)">7 Days</button>
+                            <button class="filter-pill" onclick="filterHistoryTab('30days', this)">30 Days</button>
                         </div>
                         <div class="history-actions">
                             <button class="btn-secondary" onclick="exportHistoryCSV()">
@@ -360,18 +448,17 @@
                             <thead>
                                 <tr>
                                     <th>Date</th>
-                                    <th>Mode</th>
+                                    <th>Connection</th>
                                     <th>Ping</th>
                                     <th>Down</th>
                                     <th>Up</th>
-                                    <th>Data Used (વપરાશ)</th>
-                                    <th>ISP</th>
-                                    <th>Grade</th>
+                                    <th>Server</th>
+                                    <th>Score</th>
                                 </tr>
                             </thead>
                             <tbody id="historyTableBody">
                                 <tr class="empty-row">
-                                    <td colspan="8">No test records yet. Run your first speed test!</td>
+                                    <td colspan="7">No test records yet. Run your first speed test!</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -388,9 +475,21 @@
                             <line x1="2" y1="12" x2="22" y2="12"></line>
                             <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
                         </svg>
-                        Client & Network Information
+                        Client & Network Diagnostics
                     </h3>
                     <div class="info-table">
+                        <div class="info-row">
+                            <span class="info-label">Connection Type:</span>
+                            <span class="info-value" id="infoConnectionType">Detecting...</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Network Effective Type:</span>
+                            <span class="info-value font-mono" id="infoEffectiveType">Detecting...</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Packet Loss:</span>
+                            <span class="info-value font-mono" id="infoPacketLoss">Not reliably measurable in browser mode</span>
+                        </div>
                         <div class="info-row">
                             <span class="info-label">ISP / Carrier:</span>
                             <span class="info-value" id="infoIsp">Detecting...</span>
@@ -411,11 +510,11 @@
                 </div>
 
                 <div class="card about-app-card">
-                    <h3 class="section-title">⚡ About SpeedTest Pro</h3>
+                    <h3 class="section-title">⚡ About SpeedTest Pro Engine</h3>
                     <p class="about-desc">
-                        High-precision bandwidth testing tool with continuous <strong>TURBO Download & Upload</strong> stress-test modes, real-time MB/GB data tracker, and low latency diagnostics.
+                        Professional-grade internet bandwidth & latency diagnostic engine featuring <strong>Stage 2 Multi-Server Latency Scoring</strong>, <strong>Adaptive Concurrency</strong>, <strong>Bufferbloat Loaded Latency</strong>, and <strong>Percentile Trimming</strong> for ultra-accurate measurements.
                     </p>
-                    <div class="app-version-badge">Version 2.4.0 &bull; Dual Turbo Edition</div>
+                    <div class="app-version-badge">Version 3.0.0 &bull; Modular Accurate Engine Edition</div>
                 </div>
             </section>
 
@@ -456,8 +555,7 @@
     </div>
 
     <!-- Scripts -->
-    <script src="history.js"></script>
-    <script src="speedtest.js"></script>
+    <script type="module" src="speedtest.js"></script>
     <script>
         function switchTab(tabId, btn) {
             document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
