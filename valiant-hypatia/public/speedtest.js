@@ -1,29 +1,25 @@
-// SpeedTest Pro - Master Controller Module
+// SpeedTest Pro - Master Controller Module with Ookla-Style 60 FPS Visual Smoothness Architecture
 
 import { detectConnection, listenToNetworkChanges } from './modules/networkDetection.js';
 import { selectBestServer } from './modules/serverSelection.js';
 import { executeSpeedTestPipeline } from './modules/speedtestCore.js';
 import { getTestHistory, clearTestHistory } from './modules/history.js';
 import { generateShareText, generateShareCardCanvas } from './modules/sharing.js';
+import { SpeedSmoother } from './modules/speedSmoother.js';
 
 // Global Engine State
 let currentMode = 'internet'; // 'internet' or 'local'
 let isRunning = false;
 let isTurboRunning = false;
-let currentTurboType = 'download';
 let activeAbortController = null;
 let currentTestProfile = 'standard';
 let activeResult = null;
 
-let gaugeSpeed = 0;
-let targetSpeed = 0;
+const speedSmoother = new SpeedSmoother(false);
+let lastFrameTime = performance.now();
+
 let chartPoints = [];
 let peakSpeedRecorded = 0;
-
-let turboTimerInterval = null;
-let turboStartTime = 0;
-let turboTotalBytes = 0;
-let turboPeakMbps = 0;
 
 // DOM Elements
 const canvas = document.getElementById('gaugeCanvas');
@@ -58,24 +54,10 @@ const recGoodText = document.getElementById('recGoodText');
 const valStability = document.getElementById('valStability');
 const btnShareResult = document.getElementById('btnShareResult');
 
-const turboDownBtn = document.getElementById('turboDownBtn');
-const turboUpBtn = document.getElementById('turboUpBtn');
-const turboStatsBar = document.getElementById('turboStatsBar');
-const turboLimitSelect = document.getElementById('turboLimitSelect');
-
 const mobileDataModalBackdrop = document.getElementById('mobileDataModalBackdrop');
 const netChangeModalBackdrop = document.getElementById('netChangeModalBackdrop');
 const shareModalBackdrop = document.getElementById('shareModalBackdrop');
 const shareCardImg = document.getElementById('shareCardImg');
-
-// Helper to format bytes into readable MB or GB
-function formatBytes(bytes) {
-    const mb = bytes / (1024 * 1024);
-    if (mb >= 1024) {
-        return { val: (mb / 1024).toFixed(2), unit: 'GB', full: `${(mb / 1024).toFixed(2)} GB` };
-    }
-    return { val: mb.toFixed(2), unit: 'MB', full: `${mb.toFixed(2)} MB` };
-}
 
 // Haptic Feedback
 function triggerHaptic(type = 'light') {
@@ -96,6 +78,8 @@ function updateNetworkInfoDisplay(info) {
     const infoEff = document.getElementById('infoEffectiveType');
     if (infoConn) infoConn.innerText = info.connectionType;
     if (infoEff) infoEff.innerText = info.effectiveType;
+
+    speedSmoother.setMobileMode(info.isMobile);
 }
 
 // Handle network change & background tab visibility during test
@@ -147,8 +131,17 @@ function speedToAngle(speed) {
     return START_ANGLE + (idx + segFraction) * arcPerSeg;
 }
 
+// 60 FPS Canvas Speedometer Gauge Rendering Loop
 function drawGauge() {
     if (!canvas || !ctx) return;
+
+    const now = performance.now();
+    const dt = Math.min(32, now - lastFrameTime);
+    lastFrameTime = now;
+
+    // Smooth Display Interpolation Step (Independent from raw network callbacks)
+    const currentDisplaySpeed = speedSmoother.step(dt);
+
     const width = canvas.width;
     const height = canvas.height;
     const centerX = width / 2;
@@ -157,10 +150,7 @@ function drawGauge() {
 
     ctx.clearRect(0, 0, width, height);
 
-    gaugeSpeed += (targetSpeed - gaugeSpeed) * 0.15;
-    if (Math.abs(targetSpeed - gaugeSpeed) < 0.05) gaugeSpeed = targetSpeed;
-
-    if (liveSpeedNum) liveSpeedNum.innerText = gaugeSpeed.toFixed(1);
+    if (liveSpeedNum) liveSpeedNum.innerText = currentDisplaySpeed.toFixed(1);
 
     // Background Arc
     ctx.beginPath();
@@ -171,7 +161,7 @@ function drawGauge() {
     ctx.stroke();
 
     // Active Glow Arc
-    const currentAngle = speedToAngle(gaugeSpeed);
+    const currentAngle = speedToAngle(currentDisplaySpeed);
     if (currentAngle > START_ANGLE) {
         ctx.save();
         ctx.beginPath();
@@ -191,7 +181,7 @@ function drawGauge() {
         ctx.restore();
     }
 
-    // Ticks
+    // Gauge Ticks
     SPEED_TICKS.forEach((tickVal) => {
         const angle = speedToAngle(tickVal);
         const tickInnerR = radius - 18;
@@ -206,7 +196,7 @@ function drawGauge() {
         ctx.moveTo(x1, y1);
         ctx.lineTo(x2, y2);
         ctx.lineWidth = tickVal === 0 || tickVal === 100 || tickVal === 1000 ? 3 : 1.5;
-        ctx.strokeStyle = gaugeSpeed >= tickVal ? '#00F2FE' : 'rgba(255, 255, 255, 0.25)';
+        ctx.strokeStyle = currentDisplaySpeed >= tickVal ? '#00F2FE' : 'rgba(255, 255, 255, 0.25)';
         ctx.stroke();
 
         const textR = radius - 32;
@@ -214,12 +204,12 @@ function drawGauge() {
         const ty = centerY + Math.sin(angle) * textR + 4;
 
         ctx.font = '600 11px Outfit, sans-serif';
-        ctx.fillStyle = gaugeSpeed >= tickVal ? '#FFF' : 'rgba(255, 255, 255, 0.4)';
+        ctx.fillStyle = currentDisplaySpeed >= tickVal ? '#FFF' : 'rgba(255, 255, 255, 0.4)';
         ctx.textAlign = 'center';
         ctx.fillText(tickVal.toString(), tx, ty);
     });
 
-    // Needle
+    // Gauge Needle
     ctx.save();
     ctx.translate(centerX, centerY);
     ctx.rotate(currentAngle);
@@ -252,7 +242,7 @@ function drawGauge() {
     requestAnimationFrame(drawGauge);
 }
 
-// Live Chart Renderer
+// Smooth Live Bandwidth Stream Chart
 function updateLiveChart(val) {
     if (!chartCanvas || !chartCtx) return;
     chartPoints.push(val);
@@ -276,10 +266,17 @@ function updateLiveChart(val) {
     chartCtx.beginPath();
     chartCtx.moveTo(0, h - (chartPoints[0] / maxVal) * (h - 10));
 
-    for (let i = 1; i < chartPoints.length; i++) {
-        const x = i * stepX;
-        const y = h - (chartPoints[i] / maxVal) * (h - 10);
-        chartCtx.lineTo(x, y);
+    // Smooth Bezier Curve Interpolation between graph points
+    for (let i = 0; i < chartPoints.length - 1; i++) {
+        const x1 = i * stepX;
+        const y1 = h - (chartPoints[i] / maxVal) * (h - 10);
+        const x2 = (i + 1) * stepX;
+        const y2 = h - (chartPoints[i + 1] / maxVal) * (h - 10);
+
+        const xc = (x1 + x2) / 2;
+        const yc = (y1 + y2) / 2;
+
+        chartCtx.quadraticCurveTo(x1, y1, xc, yc);
     }
 
     chartCtx.lineWidth = 2.5;
@@ -288,7 +285,7 @@ function updateLiveChart(val) {
     chartCtx.shadowBlur = 8;
     chartCtx.stroke();
 
-    chartCtx.lineTo((chartPoints.length - 1) * stepX, h);
+    chartCtx.lineTo(w, h);
     chartCtx.lineTo(0, h);
     chartCtx.closePath();
 
@@ -301,8 +298,8 @@ function updateLiveChart(val) {
 
 // Reset UI
 function resetTestUI() {
-    targetSpeed = 0;
-    gaugeSpeed = 0;
+    speedSmoother.reset();
+    chartPoints = [];
     if (startBtn) {
         startBtn.classList.remove('running');
         startBtn.disabled = false;
@@ -360,6 +357,7 @@ window.closeNetChangeModal = function() {
 // Main 8-Stage Speed Test Runner
 async function startFullSpeedTest() {
     isRunning = true;
+    speedSmoother.reset();
     activeAbortController = new AbortController();
     const signal = activeAbortController.signal;
 
@@ -384,8 +382,10 @@ async function startFullSpeedTest() {
                 if (testProgressText) testProgressText.innerText = stageName;
             },
             onProgressUpdate: (phase, data) => {
-                targetSpeed = data.instantMbps;
-                updateLiveChart(targetSpeed);
+                // Pass raw measurement to rolling buffer (does NOT force raw UI jumps)
+                speedSmoother.pushRawSample(data.instantMbps);
+                updateLiveChart(speedSmoother.targetSpeed);
+
                 if (phase === 'download' && valDownload) {
                     valDownload.innerText = data.averageMbps.toFixed(1);
                 }
@@ -398,11 +398,17 @@ async function startFullSpeedTest() {
 
         activeResult = result;
 
-        // Render Final Results
+        // Smooth Final Result Animation (Glides from live speed to final result over 400ms)
+        speedSmoother.animateToFinal(result.download, 400, (currentVal) => {
+            if (liveSpeedNum) liveSpeedNum.innerText = currentVal.toFixed(1);
+        }, () => {
+            if (valDownload) valDownload.innerText = result.download.toFixed(1);
+            if (valUpload) valUpload.innerText = result.upload.toFixed(1);
+        });
+
+        // Render Secondary Metrics
         if (valPing) valPing.innerText = result.ping;
         if (valJitter) valJitter.innerText = result.jitter;
-        if (valDownload) valDownload.innerText = result.download.toFixed(1);
-        if (valUpload) valUpload.innerText = result.upload.toFixed(1);
 
         if (lpIdle) lpIdle.innerText = `${result.ping} ms`;
         if (lpDown) lpDown.innerText = `${result.loadedLatencyDown || result.ping} ms`;
