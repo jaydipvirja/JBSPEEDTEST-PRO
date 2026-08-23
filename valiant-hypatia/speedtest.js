@@ -870,18 +870,21 @@ async function startFullSpeedTest() {
     }
 }
 
-// --- PING & JITTER (OOKLA PROBE & WARM-UP) ---
+// --- PING & JITTER (ULTRA-MOBILE PROBE) ---
 async function measurePingAndJitter(signal) {
     const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
-    const rounds = isMobile ? 6 : 10;
+    const rounds = isMobile ? 5 : 8;
     const latencies = [];
 
     let activeEndpoint = PING_ENDPOINTS[0];
     if (currentMode === 'local') activeEndpoint = PING_ENDPOINTS[1];
 
-    // Warm-up Probe (establishes TCP/TLS session on mobile towers)
+    // Warm-up probe (0.2s)
     try {
-        await fetch(`${activeEndpoint}&_t=${Date.now()}`, { cache: 'no-store', signal });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1200);
+        await fetch(`${activeEndpoint}&_t=${Date.now()}`, { cache: 'no-store', signal: controller.signal });
+        clearTimeout(timeoutId);
     } catch (e) {
         if (currentMode === 'internet') activeEndpoint = PING_ENDPOINTS[1];
     }
@@ -890,17 +893,20 @@ async function measurePingAndJitter(signal) {
         if (signal.aborted) break;
         const t0 = performance.now();
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 1500);
             const sep = activeEndpoint.includes('?') ? '&' : '?';
-            await fetch(`${activeEndpoint}${sep}_r=${i}&_t=${Date.now()}`, { cache: 'no-store', signal });
+            await fetch(`${activeEndpoint}${sep}_r=${i}&_t=${Date.now()}`, { cache: 'no-store', signal: controller.signal });
+            clearTimeout(timeoutId);
             const t1 = performance.now();
             latencies.push(t1 - t0);
         } catch (e) {
             if (signal.aborted) return { ping: 0, jitter: 0 };
         }
-        await new Promise(r => setTimeout(r, 60));
+        await new Promise(r => setTimeout(r, isMobile ? 50 : 40));
     }
 
-    if (!latencies.length) return { ping: 18, jitter: 2 };
+    if (!latencies.length) return { ping: 25, jitter: 3 };
 
     latencies.sort((a, b) => a - b);
     const validLatencies = latencies.length > 3 ? latencies.slice(1, -1) : latencies;
@@ -915,15 +921,15 @@ async function measurePingAndJitter(signal) {
     return { ping: avgPing, jitter: avgJitter };
 }
 
-// --- OOKLA PROGRESSIVE ADAPTIVE DOWNLOAD ENGINE ---
+// --- ULTRA-MOBILE OPTIMIZED DOWNLOAD ENGINE ---
 async function measureDownloadSpeed(signal) {
-    const durationMs = 7000;
+    const durationMs = 6500;
     const startTime = performance.now();
     let totalBytesReceived = 0;
     const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
     const streamsCount = currentMode === 'internet' ? (isMobile ? 2 : 4) : (isMobile ? 2 : 3);
 
-    let currentChunkSize = 256 * 1024;
+    let currentChunkSize = isMobile ? 128 * 1024 : 256 * 1024;
     const samples = [];
 
     let activeEndpoint = DOWNLOAD_ENDPOINTS[0];
@@ -935,15 +941,15 @@ async function measureDownloadSpeed(signal) {
     const intervalTimer = setInterval(() => {
         const now = performance.now();
         const deltaSec = (now - windowStartTime) / 1000;
-        if (deltaSec >= 0.15) {
+        if (deltaSec >= 0.12) {
             const instantMbps = (windowBytes * 8) / (deltaSec * 1024 * 1024);
             if (instantMbps > 0) samples.push(instantMbps);
             
-            if (instantMbps > 100) currentChunkSize = 8 * 1024 * 1024;
-            else if (instantMbps > 30) currentChunkSize = 4 * 1024 * 1024;
-            else if (instantMbps > 8) currentChunkSize = 1 * 1024 * 1024;
-            else if (instantMbps > 2) currentChunkSize = 512 * 1024;
-            else currentChunkSize = 256 * 1024;
+            if (instantMbps > 80) currentChunkSize = 8 * 1024 * 1024;
+            else if (instantMbps > 25) currentChunkSize = 4 * 1024 * 1024;
+            else if (instantMbps > 6) currentChunkSize = 1 * 1024 * 1024;
+            else if (instantMbps > 1.5) currentChunkSize = 256 * 1024;
+            else currentChunkSize = 128 * 1024;
 
             targetSpeed = Math.min(instantMbps, 2500);
             updateLiveChart(targetSpeed);
@@ -951,7 +957,7 @@ async function measureDownloadSpeed(signal) {
             windowBytes = 0;
             windowStartTime = now;
         }
-    }, 50);
+    }, 40);
 
     async function runSingleDownloadStream() {
         while (performance.now() - startTime < durationMs && !signal.aborted) {
@@ -982,7 +988,7 @@ async function measureDownloadSpeed(signal) {
                 if (currentMode === 'internet' && activeEndpoint !== DOWNLOAD_ENDPOINTS[1]) {
                     activeEndpoint = DOWNLOAD_ENDPOINTS[1];
                 }
-                await new Promise(r => setTimeout(r, 80));
+                await new Promise(r => setTimeout(r, 60));
             }
         }
     }
@@ -998,14 +1004,14 @@ async function measureDownloadSpeed(signal) {
     const trimmedSpeed = calculateTrimmedMean(samples);
     const totalDurationSec = (performance.now() - startTime) / 1000;
     const rawMbps = (totalBytesReceived * 8) / (totalDurationSec * 1024 * 1024);
-    const finalMbps = samples.length >= 4 ? trimmedSpeed : Math.max(0.1, rawMbps);
+    const finalMbps = samples.length >= 3 ? trimmedSpeed : Math.max(0.1, rawMbps);
 
     return { mbps: Math.max(0.1, finalMbps), bytes: totalBytesReceived };
 }
 
-// --- OOKLA PROGRESSIVE ADAPTIVE UPLOAD ENGINE ---
+// --- ULTRA-MOBILE OPTIMIZED UPLOAD ENGINE (NO PREFLIGHT OVERHEAD) ---
 async function measureUploadSpeed(signal) {
-    const durationMs = 6000;
+    const durationMs = 5500;
     const startTime = performance.now();
     let totalBytesUploaded = 0;
     const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
@@ -1014,11 +1020,12 @@ async function measureUploadSpeed(signal) {
     let activeEndpoint = UPLOAD_ENDPOINTS[0];
     if (currentMode === 'local') activeEndpoint = UPLOAD_ENDPOINTS[1];
 
-    let currentPayloadSize = 128 * 1024;
-    let randomBuffer = new Uint8Array(currentPayloadSize);
-    for (let i = 0; i < currentPayloadSize; i += 128) {
-        randomBuffer[i] = Math.floor(Math.random() * 256);
+    let currentPayloadSize = isMobile ? 32 * 1024 : 128 * 1024;
+    let rawArray = new Uint8Array(currentPayloadSize);
+    for (let i = 0; i < currentPayloadSize; i += 64) {
+        rawArray[i] = Math.floor(Math.random() * 256);
     }
+    let payloadBlob = new Blob([rawArray], { type: 'text/plain' });
 
     const samples = [];
     let windowBytes = 0;
@@ -1027,20 +1034,21 @@ async function measureUploadSpeed(signal) {
     const intervalTimer = setInterval(() => {
         const now = performance.now();
         const deltaSec = (now - windowStartTime) / 1000;
-        if (deltaSec >= 0.15) {
+        if (deltaSec >= 0.12) {
             const instantMbps = (windowBytes * 8) / (deltaSec * 1024 * 1024);
             if (instantMbps > 0) samples.push(instantMbps);
 
             let newPayloadSize = currentPayloadSize;
-            if (instantMbps > 40) newPayloadSize = 2 * 1024 * 1024;
-            else if (instantMbps > 15) newPayloadSize = 1 * 1024 * 1024;
-            else if (instantMbps > 5) newPayloadSize = 512 * 1024;
-            else if (instantMbps > 1.5) newPayloadSize = 256 * 1024;
-            else newPayloadSize = 128 * 1024;
+            if (instantMbps > 30) newPayloadSize = 1 * 1024 * 1024;
+            else if (instantMbps > 10) newPayloadSize = 512 * 1024;
+            else if (instantMbps > 3) newPayloadSize = 128 * 1024;
+            else if (instantMbps > 0.8) newPayloadSize = 64 * 1024;
+            else newPayloadSize = 32 * 1024;
 
             if (newPayloadSize !== currentPayloadSize) {
                 currentPayloadSize = newPayloadSize;
-                randomBuffer = new Uint8Array(currentPayloadSize);
+                rawArray = new Uint8Array(currentPayloadSize);
+                payloadBlob = new Blob([rawArray], { type: 'text/plain' });
             }
 
             targetSpeed = Math.min(instantMbps, 2500);
@@ -1049,7 +1057,7 @@ async function measureUploadSpeed(signal) {
             windowBytes = 0;
             windowStartTime = now;
         }
-    }, 50);
+    }, 40);
 
     async function runSingleUploadStream() {
         while (performance.now() - startTime < durationMs && !signal.aborted) {
@@ -1060,7 +1068,7 @@ async function measureUploadSpeed(signal) {
             try {
                 const response = await fetch(url, {
                     method: 'POST',
-                    body: randomBuffer,
+                    body: payloadBlob,
                     cache: 'no-store',
                     signal
                 });
@@ -1075,7 +1083,7 @@ async function measureUploadSpeed(signal) {
                 if (currentMode === 'internet' && activeEndpoint !== UPLOAD_ENDPOINTS[1]) {
                     activeEndpoint = UPLOAD_ENDPOINTS[1];
                 }
-                await new Promise(r => setTimeout(r, 60));
+                await new Promise(r => setTimeout(r, 40));
             }
         }
     }
@@ -1137,4 +1145,5 @@ window.addEventListener('DOMContentLoaded', () => {
     fetchClientInfo();
 });
 window.addEventListener('resize', detectDevice);
+
 
