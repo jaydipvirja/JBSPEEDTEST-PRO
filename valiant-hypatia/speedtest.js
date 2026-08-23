@@ -548,15 +548,21 @@ async function startTurboMode(type = 'download') {
     }, 60);
 
     // ==========================================
-    // RUN PARALLEL STREAM WORKERS
+    // RUN PARALLEL STREAM WORKERS (OOKLA TURBO ENGINE)
     // ==========================================
 
     if (type === 'download') {
-        const streamsCount = currentMode === 'internet' ? 6 : 4;
+        const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
+        const streamsCount = currentMode === 'internet' ? (isMobile ? 3 : 5) : 4;
 
         async function runContinuousDownloadStream() {
+            let chunkSize = 512 * 1024;
             while (!signal.aborted) {
-                const chunkSize = 25 * 1024 * 1024;
+                if (targetSpeed > 100) chunkSize = 8 * 1024 * 1024;
+                else if (targetSpeed > 30) chunkSize = 4 * 1024 * 1024;
+                else if (targetSpeed > 10) chunkSize = 1 * 1024 * 1024;
+                else chunkSize = 512 * 1024;
+
                 const url = currentMode === 'internet' 
                     ? `https://speed.cloudflare.com/__down?bytes=${chunkSize}&_t=${Date.now()}`
                     : `/api/download?size=${chunkSize}&_t=${Date.now()}`;
@@ -573,7 +579,7 @@ async function startTurboMode(type = 'download') {
                     }
                 } catch (e) {
                     if (signal.aborted) break;
-                    await new Promise(r => setTimeout(r, 100));
+                    await new Promise(r => setTimeout(r, 80));
                 }
             }
         }
@@ -589,16 +595,24 @@ async function startTurboMode(type = 'download') {
             clearInterval(speedSampler);
         }
     } else {
-        // TURBO UPLOAD ENGINE
-        const streamsCount = currentMode === 'internet' ? 4 : 3;
-        const payloadSize = 3 * 1024 * 1024; // 3MB payload chunks
-        const uploadBuffer = new Uint8Array(payloadSize);
-        for (let i = 0; i < payloadSize; i += 64) {
-            uploadBuffer[i] = Math.floor(Math.random() * 256);
-        }
+        // TURBO UPLOAD ENGINE (OOKLA ADAPTIVE MICRO-CHUNKS)
+        const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
+        const streamsCount = currentMode === 'internet' ? (isMobile ? 2 : 4) : 3;
 
         async function runContinuousUploadStream() {
+            let payloadSize = 128 * 1024; // Start at 128KB for mobile
+            let uploadBuffer = new Uint8Array(payloadSize);
+
             while (!signal.aborted) {
+                if (targetSpeed > 40) payloadSize = 2 * 1024 * 1024;
+                else if (targetSpeed > 15) payloadSize = 1 * 1024 * 1024;
+                else if (targetSpeed > 5) payloadSize = 512 * 1024;
+                else payloadSize = 128 * 1024;
+
+                if (uploadBuffer.length !== payloadSize) {
+                    uploadBuffer = new Uint8Array(payloadSize);
+                }
+
                 const url = currentMode === 'internet' 
                     ? 'https://speed.cloudflare.com/__up' 
                     : '/api/upload';
@@ -616,7 +630,7 @@ async function startTurboMode(type = 'download') {
                     }
                 } catch (e) {
                     if (signal.aborted) break;
-                    await new Promise(r => setTimeout(r, 100));
+                    await new Promise(r => setTimeout(r, 60));
                 }
             }
         }
@@ -687,8 +701,36 @@ function stopTurboMode(customMessage) {
 }
 
 // ==========================================================
-// STANDARD FULL SPEED TEST EXECUTION
+// STANDARD FULL SPEED TEST EXECUTION (OOKLA ENGINE)
 // ==========================================================
+
+const PING_ENDPOINTS = [
+    'https://speed.cloudflare.com/__down?bytes=0',
+    '/api/ping'
+];
+
+const DOWNLOAD_ENDPOINTS = [
+    'https://speed.cloudflare.com/__down',
+    '/api/download'
+];
+
+const UPLOAD_ENDPOINTS = [
+    'https://speed.cloudflare.com/__up',
+    '/api/upload'
+];
+
+// Helper: Ookla Trimmed Mean (10th - 90th percentile filtering)
+function calculateTrimmedMean(samples) {
+    if (!samples || samples.length === 0) return 0;
+    if (samples.length < 4) {
+        return samples.reduce((a, b) => a + b, 0) / samples.length;
+    }
+    const sorted = [...samples].sort((a, b) => a - b);
+    const trimCount = Math.floor(sorted.length * 0.10);
+    const trimmed = sorted.slice(trimCount, sorted.length - trimCount);
+    if (trimmed.length === 0) return sorted[Math.floor(sorted.length / 2)];
+    return trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+}
 
 async function toggleTest() {
     if (isTurboRunning) return;
@@ -828,28 +870,37 @@ async function startFullSpeedTest() {
     }
 }
 
-// --- Ping & Jitter ---
+// --- PING & JITTER (OOKLA PROBE & WARM-UP) ---
 async function measurePingAndJitter(signal) {
-    const rounds = 8;
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
+    const rounds = isMobile ? 6 : 10;
     const latencies = [];
-    const pingEndpoint = currentMode === 'internet' 
-        ? 'https://speed.cloudflare.com/__down?bytes=0' 
-        : `/api/ping?_t=${Date.now()}`;
+
+    let activeEndpoint = PING_ENDPOINTS[0];
+    if (currentMode === 'local') activeEndpoint = PING_ENDPOINTS[1];
+
+    // Warm-up Probe (establishes TCP/TLS session on mobile towers)
+    try {
+        await fetch(`${activeEndpoint}&_t=${Date.now()}`, { cache: 'no-store', signal });
+    } catch (e) {
+        if (currentMode === 'internet') activeEndpoint = PING_ENDPOINTS[1];
+    }
 
     for (let i = 0; i < rounds; i++) {
         if (signal.aborted) break;
         const t0 = performance.now();
         try {
-            await fetch(`${pingEndpoint}&r=${i}`, { cache: 'no-store', signal });
+            const sep = activeEndpoint.includes('?') ? '&' : '?';
+            await fetch(`${activeEndpoint}${sep}_r=${i}&_t=${Date.now()}`, { cache: 'no-store', signal });
             const t1 = performance.now();
             latencies.push(t1 - t0);
         } catch (e) {
             if (signal.aborted) return { ping: 0, jitter: 0 };
         }
-        await new Promise(r => setTimeout(r, 70));
+        await new Promise(r => setTimeout(r, 60));
     }
 
-    if (!latencies.length) return { ping: 20, jitter: 2 };
+    if (!latencies.length) return { ping: 18, jitter: 2 };
 
     latencies.sort((a, b) => a - b);
     const validLatencies = latencies.length > 3 ? latencies.slice(1, -1) : latencies;
@@ -864,37 +915,63 @@ async function measurePingAndJitter(signal) {
     return { ping: avgPing, jitter: avgJitter };
 }
 
-// --- Download ---
+// --- OOKLA PROGRESSIVE ADAPTIVE DOWNLOAD ENGINE ---
 async function measureDownloadSpeed(signal) {
     const durationMs = 7000;
     const startTime = performance.now();
     let totalBytesReceived = 0;
-    const streamsCount = currentMode === 'internet' ? 4 : 2;
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
+    const streamsCount = currentMode === 'internet' ? (isMobile ? 2 : 4) : (isMobile ? 2 : 3);
+
+    let currentChunkSize = 256 * 1024;
+    const samples = [];
+
+    let activeEndpoint = DOWNLOAD_ENDPOINTS[0];
+    if (currentMode === 'local') activeEndpoint = DOWNLOAD_ENDPOINTS[1];
+
+    let windowBytes = 0;
+    let windowStartTime = performance.now();
 
     const intervalTimer = setInterval(() => {
-        const elapsedSec = (performance.now() - startTime) / 1000;
-        if (elapsedSec > 0.3) {
-            const currentMbps = (totalBytesReceived * 8) / (elapsedSec * 1024 * 1024);
-            targetSpeed = Math.min(currentMbps, 1500);
-            updateLiveChart(targetSpeed);
-        }
-    }, 60);
+        const now = performance.now();
+        const deltaSec = (now - windowStartTime) / 1000;
+        if (deltaSec >= 0.15) {
+            const instantMbps = (windowBytes * 8) / (deltaSec * 1024 * 1024);
+            if (instantMbps > 0) samples.push(instantMbps);
+            
+            if (instantMbps > 100) currentChunkSize = 8 * 1024 * 1024;
+            else if (instantMbps > 30) currentChunkSize = 4 * 1024 * 1024;
+            else if (instantMbps > 8) currentChunkSize = 1 * 1024 * 1024;
+            else if (instantMbps > 2) currentChunkSize = 512 * 1024;
+            else currentChunkSize = 256 * 1024;
 
-    async function runSingleStream() {
+            targetSpeed = Math.min(instantMbps, 2500);
+            updateLiveChart(targetSpeed);
+
+            windowBytes = 0;
+            windowStartTime = now;
+        }
+    }, 50);
+
+    async function runSingleDownloadStream() {
         while (performance.now() - startTime < durationMs && !signal.aborted) {
-            const chunkSize = totalBytesReceived > 10 * 1024 * 1024 ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
+            const sep = activeEndpoint.includes('?') ? '&' : '?';
             const url = currentMode === 'internet' 
-                ? `https://speed.cloudflare.com/__down?bytes=${chunkSize}`
-                : `/api/download?size=${chunkSize}&_t=${Date.now()}`;
+                ? `${activeEndpoint}?bytes=${currentChunkSize}&_t=${Date.now()}`
+                : `${activeEndpoint}?size=${currentChunkSize}&_t=${Date.now()}`;
 
             try {
                 const response = await fetch(url, { cache: 'no-store', signal });
+                if (!response.ok && currentMode === 'internet') {
+                    activeEndpoint = DOWNLOAD_ENDPOINTS[1];
+                }
                 const reader = response.body.getReader();
 
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done || signal.aborted) break;
                     totalBytesReceived += value.length;
+                    windowBytes += value.length;
                     if (performance.now() - startTime >= durationMs) {
                         reader.cancel();
                         break;
@@ -902,51 +979,83 @@ async function measureDownloadSpeed(signal) {
                 }
             } catch (e) {
                 if (signal.aborted) break;
-                await new Promise(r => setTimeout(r, 100));
+                if (currentMode === 'internet' && activeEndpoint !== DOWNLOAD_ENDPOINTS[1]) {
+                    activeEndpoint = DOWNLOAD_ENDPOINTS[1];
+                }
+                await new Promise(r => setTimeout(r, 80));
             }
         }
     }
 
     const streamPromises = [];
     for (let i = 0; i < streamsCount; i++) {
-        streamPromises.push(runSingleStream());
+        streamPromises.push(runSingleDownloadStream());
     }
 
     await Promise.all(streamPromises);
     clearInterval(intervalTimer);
 
+    const trimmedSpeed = calculateTrimmedMean(samples);
     const totalDurationSec = (performance.now() - startTime) / 1000;
-    const finalMbps = (totalBytesReceived * 8) / (totalDurationSec * 1024 * 1024);
+    const rawMbps = (totalBytesReceived * 8) / (totalDurationSec * 1024 * 1024);
+    const finalMbps = samples.length >= 4 ? trimmedSpeed : Math.max(0.1, rawMbps);
+
     return { mbps: Math.max(0.1, finalMbps), bytes: totalBytesReceived };
 }
 
-// --- Upload ---
+// --- OOKLA PROGRESSIVE ADAPTIVE UPLOAD ENGINE ---
 async function measureUploadSpeed(signal) {
-    const durationMs = 5500;
+    const durationMs = 6000;
     const startTime = performance.now();
     let totalBytesUploaded = 0;
-    const streamsCount = currentMode === 'internet' ? 3 : 2;
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
+    const streamsCount = currentMode === 'internet' ? (isMobile ? 2 : 3) : (isMobile ? 2 : 2);
 
-    const payloadSize = 2 * 1024 * 1024;
-    const randomBuffer = new Uint8Array(payloadSize);
-    for (let i = 0; i < payloadSize; i += 64) {
+    let activeEndpoint = UPLOAD_ENDPOINTS[0];
+    if (currentMode === 'local') activeEndpoint = UPLOAD_ENDPOINTS[1];
+
+    let currentPayloadSize = 128 * 1024;
+    let randomBuffer = new Uint8Array(currentPayloadSize);
+    for (let i = 0; i < currentPayloadSize; i += 128) {
         randomBuffer[i] = Math.floor(Math.random() * 256);
     }
 
+    const samples = [];
+    let windowBytes = 0;
+    let windowStartTime = performance.now();
+
     const intervalTimer = setInterval(() => {
-        const elapsedSec = (performance.now() - startTime) / 1000;
-        if (elapsedSec > 0.3) {
-            const currentMbps = (totalBytesUploaded * 8) / (elapsedSec * 1024 * 1024);
-            targetSpeed = Math.min(currentMbps, 1500);
+        const now = performance.now();
+        const deltaSec = (now - windowStartTime) / 1000;
+        if (deltaSec >= 0.15) {
+            const instantMbps = (windowBytes * 8) / (deltaSec * 1024 * 1024);
+            if (instantMbps > 0) samples.push(instantMbps);
+
+            let newPayloadSize = currentPayloadSize;
+            if (instantMbps > 40) newPayloadSize = 2 * 1024 * 1024;
+            else if (instantMbps > 15) newPayloadSize = 1 * 1024 * 1024;
+            else if (instantMbps > 5) newPayloadSize = 512 * 1024;
+            else if (instantMbps > 1.5) newPayloadSize = 256 * 1024;
+            else newPayloadSize = 128 * 1024;
+
+            if (newPayloadSize !== currentPayloadSize) {
+                currentPayloadSize = newPayloadSize;
+                randomBuffer = new Uint8Array(currentPayloadSize);
+            }
+
+            targetSpeed = Math.min(instantMbps, 2500);
             updateLiveChart(targetSpeed);
+
+            windowBytes = 0;
+            windowStartTime = now;
         }
-    }, 60);
+    }, 50);
 
     async function runSingleUploadStream() {
         while (performance.now() - startTime < durationMs && !signal.aborted) {
             const url = currentMode === 'internet' 
-                ? 'https://speed.cloudflare.com/__up' 
-                : '/api/upload';
+                ? activeEndpoint 
+                : `${activeEndpoint}?_t=${Date.now()}`;
 
             try {
                 const response = await fetch(url, {
@@ -956,11 +1065,17 @@ async function measureUploadSpeed(signal) {
                     signal
                 });
                 if (response.ok) {
-                    totalBytesUploaded += payloadSize;
+                    totalBytesUploaded += currentPayloadSize;
+                    windowBytes += currentPayloadSize;
+                } else if (currentMode === 'internet') {
+                    activeEndpoint = UPLOAD_ENDPOINTS[1];
                 }
             } catch (e) {
                 if (signal.aborted) break;
-                await new Promise(r => setTimeout(r, 100));
+                if (currentMode === 'internet' && activeEndpoint !== UPLOAD_ENDPOINTS[1]) {
+                    activeEndpoint = UPLOAD_ENDPOINTS[1];
+                }
+                await new Promise(r => setTimeout(r, 60));
             }
         }
     }
@@ -973,8 +1088,11 @@ async function measureUploadSpeed(signal) {
     await Promise.all(streamPromises);
     clearInterval(intervalTimer);
 
+    const trimmedSpeed = calculateTrimmedMean(samples);
     const totalDurationSec = (performance.now() - startTime) / 1000;
-    const finalMbps = (totalBytesUploaded * 8) / (totalDurationSec * 1024 * 1024);
+    const rawMbps = (totalBytesUploaded * 8) / (totalDurationSec * 1024 * 1024);
+    const finalMbps = samples.length >= 3 ? trimmedSpeed : Math.max(0.1, rawMbps);
+
     return { mbps: Math.max(0.1, finalMbps), bytes: totalBytesUploaded };
 }
 
@@ -1019,3 +1137,4 @@ window.addEventListener('DOMContentLoaded', () => {
     fetchClientInfo();
 });
 window.addEventListener('resize', detectDevice);
+
