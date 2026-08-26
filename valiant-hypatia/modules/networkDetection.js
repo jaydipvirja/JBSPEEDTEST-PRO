@@ -94,11 +94,16 @@ export function detectConnection() {
 
 export function listenToNetworkChanges(onNetworkChangeCallback, onVisibilityChangeCallback) {
     const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    let lastConnectionType = detectConnection().connectionType;
 
     const handleConnectionChange = () => {
         const info = detectConnection();
-        console.log('[MobileDataDebug] Network Change Event Fired:', info);
-        onNetworkChangeCallback(info);
+        // Only trigger if connection type actually changed (e.g. Wi-Fi to Mobile)
+        if (info.connectionType !== lastConnectionType) {
+            console.log('[MobileDataDebug] Connection Type Changed:', lastConnectionType, '->', info.connectionType);
+            lastConnectionType = info.connectionType;
+            onNetworkChangeCallback(info);
+        }
     };
 
     const handleVisibilityChange = () => {

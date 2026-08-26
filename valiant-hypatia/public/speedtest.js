@@ -464,6 +464,8 @@ async function startTurboMode(type) {
                 break;
             }
 
+            let lastProgressBytes = 0;
+
             if (type === 'download') {
                 await runDownloadTest({
                     server,
@@ -472,7 +474,9 @@ async function startTurboMode(type) {
                     onProgress: (p) => {
                         speedSmoother.pushRawSample(p.instantMbps);
                         updateLiveChart(speedSmoother.targetSpeed);
-                        turboTotalBytes += p.totalBytes;
+                        const deltaBytes = Math.max(0, p.totalBytes - lastProgressBytes);
+                        lastProgressBytes = p.totalBytes;
+                        turboTotalBytes += deltaBytes;
                         if (p.instantMbps > turboPeakMbps) {
                             turboPeakMbps = p.instantMbps;
                             const peakEl = document.getElementById('turboPeakSpeed');
@@ -490,7 +494,9 @@ async function startTurboMode(type) {
                     onProgress: (p) => {
                         speedSmoother.pushRawSample(p.instantMbps);
                         updateLiveChart(speedSmoother.targetSpeed);
-                        turboTotalBytes += p.totalBytes;
+                        const deltaBytes = Math.max(0, p.totalBytes - lastProgressBytes);
+                        lastProgressBytes = p.totalBytes;
+                        turboTotalBytes += deltaBytes;
                         if (p.instantMbps > turboPeakMbps) {
                             turboPeakMbps = p.instantMbps;
                             const peakEl = document.getElementById('turboPeakSpeed');

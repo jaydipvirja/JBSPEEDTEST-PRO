@@ -36,19 +36,20 @@ export async function runDownloadTest({
 
     const loadedLatencyCollector = createLoadedLatencyCollector(pingEndpoint, signal);
 
-    let windowSamples = [];
+    let lastBytesCount = 0;
+    let lastTickTime = performance.now();
 
     const intervalTimer = setInterval(() => {
         const now = performance.now();
         const elapsedSec = (now - startTime) / 1000;
+        const deltaSec = (now - lastTickTime) / 1000;
+        const bytesInDelta = totalBytesReceived - lastBytesCount;
 
-        windowSamples = windowSamples.filter(s => now - s.timestamp <= 300);
+        lastBytesCount = totalBytesReceived;
+        lastTickTime = now;
 
-        if (windowSamples.length > 0) {
-            const windowBytesTotal = windowSamples.reduce((sum, item) => sum + item.bytes, 0);
-            const oldestTime = windowSamples[0].timestamp;
-            const windowTimeSec = Math.max(0.1, (now - oldestTime) / 1000);
-            const instantMbps = (windowBytesTotal * 8) / (windowTimeSec * 1024 * 1024);
+        if (deltaSec >= 0.05) {
+            const instantMbps = (bytesInDelta * 8) / (deltaSec * 1024 * 1024);
 
             // Record samples ONLY after the warm-up phase
             if (elapsedSec * 1000 > warmUpDurationMs && instantMbps > 0) {
@@ -81,7 +82,7 @@ export async function runDownloadTest({
                 });
             }
         }
-    }, 40);
+    }, 80);
 
     async function runSingleDownloadWorker(workerId) {
         while (performance.now() - startTime < durationMs && (!signal || !signal.aborted)) {
@@ -105,9 +106,7 @@ export async function runDownloadTest({
                     const { done, value } = await reader.read();
                     if (done || (signal && signal.aborted)) break;
                     
-                    const chunkTime = performance.now();
                     totalBytesReceived += value.length;
-                    windowSamples.push({ bytes: value.length, timestamp: chunkTime });
 
                     if (performance.now() - startTime <= warmUpDurationMs) {
                         warmUpBytesReceived += value.length;
